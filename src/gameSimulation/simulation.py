@@ -30,6 +30,9 @@ class BaseSimulation:
                 self.env.step(self.agent2.act())
             self.env.render()
         return self.env.score
+
+
+# Simulate Random VS Random
 class SimulateRandomVSrandom(BaseSimulation):
     def __init__(self, env):
         super().__init__(env)
