@@ -1,0 +1,91 @@
+AIM: TO create environment initially the agent is aimed to random so learning is not there a test for environment
+
+Problem Statement: To create an environment where the agent can learn to play dot and boxes game
+
+my propose model: State of the game
+
+game state can be figured out by the edges as there is a box of size N x N 
+
+that implies there are total of N*(N+1) horizontal edges and N*(N+1) vertical edges
+
+so for even like N = 20 it would be 20*21 = 420 horizontal edges and 420 vertical edges
+
+total edges = 840 
+
+/*****************************************************************************************************************/
+
+1. lets create the sketch of the game
+
+for N = 4
+
+horizontal edges = 4 * 5 = 20
+vertical edges = 4 * 5 = 20
+
+horizontal
+_ _ _ _ 
+_ _ _ _ 
+_ _ _ _ 
+_ _ _ _ 
+_ _ _ _ 
+
+vertical
+| | | | | 
+| | | | | 
+| | | | | 
+| | | | | 
+
+so how do a square be made??
+
+suppose 
+
+to check if box[i][j] is made we need to check if all the 4 edges are made
+
+horizontal edges are h[i][j] and h[i+1][j]
+vertical edges are v[i][j] and v[i][j+1]
+
+so box[i][j] is made if h[i][j] == 1 and h[i+1][j] == 1 and v[i][j] == 1 and v[i][j+1] == 1
+
+where h[i][j] is the horizontal edge between (i,j) and (i,j+1)
+and v[i][j] is the vertical edge between (i,j) and (i+1,j)
+
+
+
+2. how to define an action 
+
+there are two options
+
+h or v say (0,1) 
+then there is there position 
+
+(i,j) where i is row and j is column
+
+so for horizontal edge it would be (0, i, j)
+and for vertical edge it would be (1, i, j)
+
+so actions can be defined as 
+
+(0, i, j) or (1, i, j) (1 x 3 tupple)
+
+for A[0] = 1 
+i>=0 and i<N
+j>=0 and j<=N
+
+for A[0] = 0 
+i>=0 and i<=N
+j>=0 and j<N
+
+
+3. how to define a reward
+
+reward can be defined as 
+
+if box is made then reward is 1
+else reward is 0
+
+
+4. how to agents play
+
+agent 1 plays first then agent 2 and so on
+
+initial agents are going to be random
+
