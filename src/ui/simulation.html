@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dots & Boxes — Game Simulation Viewer</title>
+    <meta name="description" content="Interactive visualization of Dots and Boxes RL agent simulations">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a2e;
+            --bg-card-hover: #1f1f35;
+            --border: #2a2a40;
+            --border-glow: rgba(99, 102, 241, 0.3);
+            --text-primary: #e8e8f0;
+            --text-secondary: #8888a0;
+            --text-muted: #555570;
+            --accent-1: #6366f1;
+            --accent-1-glow: rgba(99, 102, 241, 0.15);
+            --accent-2: #ec4899;
+            --accent-2-glow: rgba(236, 72, 153, 0.15);
+            --player1: #6366f1;
+            --player1-fill: rgba(99, 102, 241, 0.15);
+            --player1-light: #818cf8;
+            --player2: #ec4899;
+            --player2-fill: rgba(236, 72, 153, 0.15);
+            --player2-light: #f472b6;
+            --edge-inactive: #2a2a40;
+            --edge-active: #e8e8f0;
+            --dot-color: #8888a0;
+            --dot-glow: rgba(136, 136, 160, 0.4);
+            --success: #10b981;
+            --warning: #f59e0b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Animated background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: 
+                radial-gradient(ellipse at 20% 0%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 100%, rgba(236, 72, 153, 0.06) 0%, transparent 50%);
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        .app-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 32px;
+            padding: 32px 0;
+        }
+
+        .header h1 {
+            font-size: 2.4rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            background: linear-gradient(135deg, var(--player1-light), var(--player2-light));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            font-weight: 400;
+        }
+
+        /* Data loading */
+        #load-section {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .load-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 28px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .load-btn:hover {
+            border-color: var(--accent-1);
+            box-shadow: 0 0 20px var(--accent-1-glow);
+            transform: translateY(-1px);
+        }
+
+        .load-btn svg { width: 18px; height: 18px; }
+
+        /* Game selector */
+        .game-selector {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 28px;
+        }
+
+        .game-tab {
+            padding: 8px 20px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.82rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .game-tab:hover {
+            border-color: var(--text-muted);
+            color: var(--text-primary);
+        }
+
+        .game-tab.active {
+            background: var(--accent-1);
+            border-color: var(--accent-1);
+            color: #fff;
+            box-shadow: 0 0 16px var(--accent-1-glow);
+        }
+
+        /* Main layout */
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            gap: 24px;
+            align-items: start;
+        }
+
+        @media (max-width: 900px) {
+            .main-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            transition: border-color 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: rgba(136, 136, 160, 0.2);
+        }
+
+        .card-title {
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+        }
+
+        /* Board canvas area */
+        .board-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #board-canvas {
+            display: block;
+            margin: 0 auto;
+        }
+
+        /* Scoreboard */
+        .scoreboard {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            margin-bottom: 20px;
+            width: 100%;
+        }
+
+        .score-item {
+            flex: 1;
+            padding: 16px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid var(--border);
+            transition: all 0.3s ease;
+        }
+
+        .score-item.p1 {
+            background: var(--player1-fill);
+            border-color: rgba(99, 102, 241, 0.25);
+        }
+
+        .score-item.p2 {
+            background: var(--player2-fill);
+            border-color: rgba(236, 72, 153, 0.25);
+        }
+
+        .score-item.active-turn {
+            box-shadow: 0 0 20px var(--accent-1-glow);
+        }
+
+        .score-item.active-turn.p2 {
+            box-shadow: 0 0 20px var(--accent-2-glow);
+        }
+
+        .score-label {
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .score-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 2rem;
+            font-weight: 700;
+        }
+
+        .score-item.p1 .score-value { color: var(--player1-light); }
+        .score-item.p2 .score-value { color: var(--player2-light); }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        .ctrl-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            min-width: 44px;
+            height: 44px;
+            padding: 0 14px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.82rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .ctrl-btn:hover {
+            border-color: var(--accent-1);
+            background: var(--bg-card-hover);
+        }
+
+        .ctrl-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .ctrl-btn.primary {
+            background: var(--accent-1);
+            border-color: var(--accent-1);
+            color: #fff;
+        }
+
+        .ctrl-btn.primary:hover {
+            box-shadow: 0 0 16px var(--accent-1-glow);
+        }
+
+        .ctrl-btn svg { width: 18px; height: 18px; }
+
+        /* Speed control */
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 12px;
+            justify-content: center;
+        }
+
+        .speed-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .speed-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 120px;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--border);
+            outline: none;
+        }
+
+        .speed-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--accent-1);
+            cursor: pointer;
+            box-shadow: 0 0 8px var(--accent-1-glow);
+        }
+
+        /* Move counter */
+        .move-counter {
+            text-align: center;
+            margin-top: 12px;
+        }
+
+        .move-counter span {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .move-counter .current-move {
+            color: var(--accent-1);
+            font-weight: 600;
+        }
+
+        /* Sidebar - move log */
+        .move-log {
+            max-height: 500px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) transparent;
+        }
+
+        .move-log::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .move-log::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        .move-entry {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            margin-bottom: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.82rem;
+        }
+
+        .move-entry:hover {
+            background: var(--bg-card-hover);
+        }
+
+        .move-entry.active {
+            background: var(--bg-card-hover);
+            border: 1px solid var(--border-glow);
+        }
+
+        .move-entry.p1 { border-left: 3px solid var(--player1); }
+        .move-entry.p2 { border-left: 3px solid var(--player2); }
+
+        .move-num {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            min-width: 24px;
+        }
+
+        .move-desc {
+            flex: 1;
+            color: var(--text-secondary);
+        }
+
+        .move-desc strong {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .move-badge {
+            font-size: 0.68rem;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        .move-badge.box-made {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--success);
+        }
+
+        /* Game result banner */
+        .result-banner {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            border-radius: 12px;
+            margin-top: 16px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            animation: bannerPop 0.4s ease;
+        }
+
+        .result-banner.show { display: block; }
+
+        .result-banner.p1-wins {
+            background: var(--player1-fill);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            color: var(--player1-light);
+        }
+
+        .result-banner.p2-wins {
+            background: var(--player2-fill);
+            border: 1px solid rgba(236, 72, 153, 0.3);
+            color: var(--player2-light);
+        }
+
+        .result-banner.draw {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: var(--warning);
+        }
+
+        @keyframes bannerPop {
+            0% { transform: scale(0.9); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        /* Edge flash animation */
+        @keyframes edgeFlash {
+            0% { filter: brightness(2); }
+            100% { filter: brightness(1); }
+        }
+
+        /* No data state */
+        .no-data {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+        }
+
+        .no-data h3 {
+            font-size: 1.2rem;
+            margin-bottom: 12px;
+            color: var(--text-secondary);
+        }
+
+        .no-data code {
+            display: inline-block;
+            margin-top: 8px;
+            padding: 8px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            color: var(--accent-1);
+        }
+
+        /* Stats bar */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .stat-item {
+            padding: 12px;
+            border-radius: 10px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .stat-label {
+            font-size: 0.68rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Dots & Boxes Simulator</h1>
+            <p>Step-by-step game visualization • Random Agent vs Random Agent</p>
+        </header>
+
+        <!-- Load Section -->
+        <div id="load-section">
+            <button class="load-btn" id="load-btn" onclick="loadGameData()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Load Game Data
+            </button>
+            <input type="file" id="file-input" accept=".json" style="display:none" />
+        </div>
+
+        <!-- Game selector tabs -->
+        <div class="game-selector hidden" id="game-selector"></div>
+
+        <!-- Main content -->
+        <div class="main-layout hidden" id="main-content">
+            <!-- Left: Board -->
+            <div>
+                <!-- Stats -->
+                <div class="stats-bar" id="stats-bar">
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-board">—</div>
+                        <div class="stat-label">Board Size</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-moves">—</div>
+                        <div class="stat-label">Total Moves</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-winner">—</div>
+                        <div class="stat-label">Winner</div>
+                    </div>
+                </div>
+
+                <!-- Scoreboard -->
+                <div class="scoreboard">
+                    <div class="score-item p1" id="score-p1">
+                        <div class="score-label">Player 1 (Random)</div>
+                        <div class="score-value" id="score-val-p1">0</div>
+                    </div>
+                    <div class="score-item p2" id="score-p2">
+                        <div class="score-label">Player 2 (Random)</div>
+                        <div class="score-value" id="score-val-p2">0</div>
+                    </div>
+                </div>
+
+                <!-- Board -->
+                <div class="card board-container">
+                    <canvas id="board-canvas"></canvas>
+                </div>
+
+                <!-- Controls -->
+                <div class="controls">
+                    <button class="ctrl-btn" id="btn-start" title="Go to start">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+                    </button>
+                    <button class="ctrl-btn" id="btn-prev" title="Previous move">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                    </button>
+                    <button class="ctrl-btn primary" id="btn-play" title="Auto-play">
+                        <svg id="icon-play" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        <svg id="icon-pause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                    </button>
+                    <button class="ctrl-btn" id="btn-next" title="Next move">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                    </button>
+                    <button class="ctrl-btn" id="btn-end" title="Go to end">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+                    </button>
+                </div>
+
+                <div class="speed-control">
+                    <span class="speed-label">Speed</span>
+                    <input type="range" class="speed-slider" id="speed-slider" min="1" max="10" value="5" />
+                    <span class="speed-label" id="speed-val">500ms</span>
+                </div>
+
+                <div class="move-counter">
+                    <span>Move <span class="current-move" id="move-num">0</span> / <span id="move-total">0</span></span>
+                </div>
+
+                <!-- Result banner -->
+                <div class="result-banner" id="result-banner"></div>
+            </div>
+
+            <!-- Right: Move Log -->
+            <div class="card">
+                <div class="card-title">Move History</div>
+                <div class="move-log" id="move-log"></div>
+            </div>
+        </div>
+
+        <!-- No data state -->
+        <div class="no-data" id="no-data">
+            <h3>No game data loaded</h3>
+            <p>Run the simulation first, then click "Load Game Data"</p>
+            <code>python src/simulate_and_record.py 3 5</code>
+        </div>
+    </div>
+
+    <script>
+        // ===== STATE =====
+        let allGames = [];
+        let currentGameIndex = 0;
+        let currentStep = 0;
+        let isPlaying = false;
+        let playInterval = null;
+        let playSpeed = 500;
+
+        const canvas = document.getElementById('board-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // ===== COLORS =====
+        const COLORS = {
+            bg: '#1a1a2e',
+            dot: '#8888a0',
+            dotGlow: 'rgba(136, 136, 160, 0.5)',
+            edgeInactive: '#2a2a40',
+            edgeActive: '#e8e8f0',
+            edgeNew: '#fbbf24',
+            player1: '#6366f1',
+            player1Fill: 'rgba(99, 102, 241, 0.18)',
+            player1Light: '#818cf8',
+            player2: '#ec4899',
+            player2Fill: 'rgba(236, 72, 153, 0.18)',
+            player2Light: '#f472b6',
+        };
+
+        // ===== DATA LOADING =====
+        function loadGameData() {
+            // Try to fetch from same directory first
+            fetch('game_data.json')
+                .then(r => {
+                    if (!r.ok) throw new Error('Not found');
+                    return r.json();
+                })
+                .then(data => {
+                    processLoadedData(data);
+                })
+                .catch(() => {
+                    // Fallback to file picker
+                    document.getElementById('file-input').click();
+                });
+        }
+
+        document.getElementById('file-input').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    const data = JSON.parse(ev.target.result);
+                    processLoadedData(data);
+                } catch (err) {
+                    alert('Invalid JSON file');
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function processLoadedData(data) {
+            allGames = data.games;
+            document.getElementById('no-data').classList.add('hidden');
+            document.getElementById('main-content').classList.remove('hidden');
+            document.getElementById('game-selector').classList.remove('hidden');
+
+            buildGameTabs();
+            selectGame(0);
+        }
+
+        function buildGameTabs() {
+            const el = document.getElementById('game-selector');
+            el.innerHTML = '';
+            allGames.forEach((game, idx) => {
+                const tab = document.createElement('button');
+                tab.className = 'game-tab' + (idx === 0 ? ' active' : '');
+                const winner = game.final_score[0] > game.final_score[1] ? 'P1 wins' :
+                               game.final_score[1] > game.final_score[0] ? 'P2 wins' : 'Draw';
+                tab.textContent = `Game ${game.game_id} (${winner})`;
+                tab.onclick = () => selectGame(idx);
+                el.appendChild(tab);
+            });
+        }
+
+        function selectGame(idx) {
+            currentGameIndex = idx;
+            currentStep = 0;
+            stopAutoPlay();
+
+            // Update tabs
+            document.querySelectorAll('.game-tab').forEach((t, i) => {
+                t.classList.toggle('active', i === idx);
+            });
+
+            const game = allGames[idx];
+
+            // Stats
+            document.getElementById('stat-board').textContent = `${game.board_size}×${game.board_size}`;
+            document.getElementById('stat-moves').textContent = game.total_moves;
+            const winner = game.final_score[0] > game.final_score[1] ? 'P1' :
+                           game.final_score[1] > game.final_score[0] ? 'P2' : 'Draw';
+            document.getElementById('stat-winner').textContent = winner;
+            document.getElementById('move-total').textContent = game.total_moves;
+
+            // Build move log
+            buildMoveLog(game);
+
+            // Setup canvas size
+            setupCanvas(game.board_size);
+
+            // Render initial state
+            renderState();
+        }
+
+        function setupCanvas(N) {
+            const dpr = window.devicePixelRatio || 1;
+            const cellSize = Math.min(80, Math.floor(500 / N));
+            const padding = 40;
+            const size = N * cellSize + 2 * padding;
+
+            canvas.width = size * dpr;
+            canvas.height = size * dpr;
+            canvas.style.width = size + 'px';
+            canvas.style.height = size + 'px';
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            canvas._cellSize = cellSize;
+            canvas._padding = padding;
+            canvas._N = N;
+        }
+
+        function buildMoveLog(game) {
+            const log = document.getElementById('move-log');
+            log.innerHTML = '';
+
+            // Initial state entry
+            const initEntry = document.createElement('div');
+            initEntry.className = 'move-entry active';
+            initEntry.innerHTML = `<span class="move-num">#0</span><span class="move-desc">Initial state</span>`;
+            initEntry.onclick = () => goToStep(0);
+            log.appendChild(initEntry);
+
+            game.action_history.forEach((move, idx) => {
+                const entry = document.createElement('div');
+                const playerClass = move.player === 1 ? 'p1' : 'p2';
+                const type = move.action[0] === 0 ? 'H' : 'V';
+                const desc = `<strong>P${move.player}</strong> → ${type}(${move.action[1]},${move.action[2]})`;
+                const badge = move.box_made ? `<span class="move-badge box-made">+${move.reward} box${move.reward > 1 ? 'es' : ''}</span>` : '';
+
+                entry.className = `move-entry ${playerClass}`;
+                entry.innerHTML = `<span class="move-num">#${idx + 1}</span><span class="move-desc">${desc}</span>${badge}`;
+                entry.onclick = () => goToStep(idx + 1);
+                log.appendChild(entry);
+            });
+        }
+
+        // ===== RENDERING =====
+        function renderState() {
+            const game = allGames[currentGameIndex];
+            const state = game.state_history[currentStep];
+            if (!state) return;
+
+            const N = canvas._N;
+            const cell = canvas._cellSize;
+            const pad = canvas._padding;
+            const w = parseFloat(canvas.style.width);
+            const h = parseFloat(canvas.style.height);
+
+            // Clear
+            ctx.clearRect(0, 0, w, h);
+
+            // Determine the new edge (if any)
+            let newAction = null;
+            if (currentStep > 0) {
+                newAction = game.action_history[currentStep - 1];
+            }
+
+            // Draw filled boxes
+            for (let i = 0; i < N; i++) {
+                for (let j = 0; j < N; j++) {
+                    if (state.boxes[i][j] !== 0) {
+                        const x = pad + j * cell;
+                        const y = pad + i * cell;
+                        const isP1 = state.boxes[i][j] === 1;
+
+                        ctx.fillStyle = isP1 ? COLORS.player1Fill : COLORS.player2Fill;
+                        ctx.fillRect(x, y, cell, cell);
+
+                        // Player number in box
+                        ctx.fillStyle = isP1 ? COLORS.player1Light : COLORS.player2Light;
+                        ctx.font = `bold ${Math.floor(cell * 0.35)}px 'JetBrains Mono', monospace`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(`P${state.boxes[i][j]}`, x + cell / 2, y + cell / 2);
+                    }
+                }
+            }
+
+            // Draw horizontal edges
+            for (let i = 0; i <= N; i++) {
+                for (let j = 0; j < N; j++) {
+                    const x1 = pad + j * cell;
+                    const y1 = pad + i * cell;
+                    const x2 = x1 + cell;
+
+                    const isNew = newAction && newAction.action[0] === 0 && newAction.action[1] === i && newAction.action[2] === j;
+
+                    if (state.horizontal_edges[i][j]) {
+                        ctx.strokeStyle = isNew ? COLORS.edgeNew : COLORS.edgeActive;
+                        ctx.lineWidth = isNew ? 4 : 3;
+                        ctx.lineCap = 'round';
+
+                        if (isNew) {
+                            ctx.shadowColor = COLORS.edgeNew;
+                            ctx.shadowBlur = 12;
+                        }
+
+                        ctx.beginPath();
+                        ctx.moveTo(x1, y1);
+                        ctx.lineTo(x2, y1);
+                        ctx.stroke();
+
+                        ctx.shadowColor = 'transparent';
+                        ctx.shadowBlur = 0;
+                    } else {
+                        ctx.strokeStyle = COLORS.edgeInactive;
+                        ctx.lineWidth = 1;
+                        ctx.setLineDash([4, 4]);
+                        ctx.beginPath();
+                        ctx.moveTo(x1, y1);
+                        ctx.lineTo(x2, y1);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+                }
+            }
+
+            // Draw vertical edges
+            for (let i = 0; i < N; i++) {
+                for (let j = 0; j <= N; j++) {
+                    const x1 = pad + j * cell;
+                    const y1 = pad + i * cell;
+                    const y2 = y1 + cell;
+
+                    const isNew = newAction && newAction.action[0] === 1 && newAction.action[1] === i && newAction.action[2] === j;
+
+                    if (state.vertical_edges[i][j]) {
+                        ctx.strokeStyle = isNew ? COLORS.edgeNew : COLORS.edgeActive;
+                        ctx.lineWidth = isNew ? 4 : 3;
+                        ctx.lineCap = 'round';
+
+                        if (isNew) {
+                            ctx.shadowColor = COLORS.edgeNew;
+                            ctx.shadowBlur = 12;
+                        }
+
+                        ctx.beginPath();
+                        ctx.moveTo(x1, y1);
+                        ctx.lineTo(x1, y2);
+                        ctx.stroke();
+
+                        ctx.shadowColor = 'transparent';
+                        ctx.shadowBlur = 0;
+                    } else {
+                        ctx.strokeStyle = COLORS.edgeInactive;
+                        ctx.lineWidth = 1;
+                        ctx.setLineDash([4, 4]);
+                        ctx.beginPath();
+                        ctx.moveTo(x1, y1);
+                        ctx.lineTo(x1, y2);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+                }
+            }
+
+            // Draw dots
+            for (let i = 0; i <= N; i++) {
+                for (let j = 0; j <= N; j++) {
+                    const x = pad + j * cell;
+                    const y = pad + i * cell;
+
+                    ctx.beginPath();
+                    ctx.arc(x, y, 5, 0, Math.PI * 2);
+                    ctx.fillStyle = COLORS.dot;
+                    ctx.fill();
+
+                    // Glow
+                    ctx.beginPath();
+                    ctx.arc(x, y, 8, 0, Math.PI * 2);
+                    ctx.fillStyle = COLORS.dotGlow;
+                    ctx.fill();
+                }
+            }
+
+            // Update score display
+            document.getElementById('score-val-p1').textContent = state.score[0];
+            document.getElementById('score-val-p2').textContent = state.score[1];
+
+            // Active turn indicator
+            const p1El = document.getElementById('score-p1');
+            const p2El = document.getElementById('score-p2');
+            p1El.classList.toggle('active-turn', state.current_player === 1 && !state.done);
+            p2El.classList.toggle('active-turn', state.current_player === 2 && !state.done);
+
+            // Move counter
+            document.getElementById('move-num').textContent = currentStep;
+
+            // Highlight active move in log
+            document.querySelectorAll('.move-entry').forEach((e, i) => {
+                e.classList.toggle('active', i === currentStep);
+            });
+
+            // Scroll active move into view
+            const activeEntry = document.querySelector('.move-entry.active');
+            if (activeEntry) {
+                activeEntry.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
+
+            // Result banner
+            const banner = document.getElementById('result-banner');
+            if (state.done) {
+                banner.classList.add('show');
+                if (state.score[0] > state.score[1]) {
+                    banner.className = 'result-banner show p1-wins';
+                    banner.textContent = `🏆 Player 1 wins! (${state.score[0]} - ${state.score[1]})`;
+                } else if (state.score[1] > state.score[0]) {
+                    banner.className = 'result-banner show p2-wins';
+                    banner.textContent = `🏆 Player 2 wins! (${state.score[1]} - ${state.score[0]})`;
+                } else {
+                    banner.className = 'result-banner show draw';
+                    banner.textContent = `🤝 It's a draw! (${state.score[0]} - ${state.score[1]})`;
+                }
+            } else {
+                banner.classList.remove('show');
+            }
+        }
+
+        // ===== CONTROLS =====
+        function goToStep(step) {
+            const game = allGames[currentGameIndex];
+            currentStep = Math.max(0, Math.min(step, game.state_history.length - 1));
+            renderState();
+        }
+
+        document.getElementById('btn-start').onclick = () => { stopAutoPlay(); goToStep(0); };
+        document.getElementById('btn-prev').onclick = () => { stopAutoPlay(); goToStep(currentStep - 1); };
+        document.getElementById('btn-next').onclick = () => { stopAutoPlay(); goToStep(currentStep + 1); };
+        document.getElementById('btn-end').onclick = () => {
+            stopAutoPlay();
+            goToStep(allGames[currentGameIndex].state_history.length - 1);
+        };
+
+        document.getElementById('btn-play').onclick = () => {
+            if (isPlaying) {
+                stopAutoPlay();
+            } else {
+                startAutoPlay();
+            }
+        };
+
+        function startAutoPlay() {
+            const game = allGames[currentGameIndex];
+            if (currentStep >= game.state_history.length - 1) {
+                currentStep = 0;
+                renderState();
+            }
+
+            isPlaying = true;
+            document.getElementById('icon-play').style.display = 'none';
+            document.getElementById('icon-pause').style.display = 'block';
+
+            playInterval = setInterval(() => {
+                if (currentStep >= game.state_history.length - 1) {
+                    stopAutoPlay();
+                    return;
+                }
+                currentStep++;
+                renderState();
+            }, playSpeed);
+        }
+
+        function stopAutoPlay() {
+            isPlaying = false;
+            if (playInterval) clearInterval(playInterval);
+            playInterval = null;
+            document.getElementById('icon-play').style.display = 'block';
+            document.getElementById('icon-pause').style.display = 'none';
+        }
+
+        // Speed slider
+        const speedSlider = document.getElementById('speed-slider');
+        speedSlider.addEventListener('input', () => {
+            // 1 = 1000ms (slow), 10 = 100ms (fast)
+            playSpeed = 1100 - speedSlider.value * 100;
+            document.getElementById('speed-val').textContent = playSpeed + 'ms';
+
+            if (isPlaying) {
+                stopAutoPlay();
+                startAutoPlay();
+            }
+        });
+
+        // Keyboard controls
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a') { stopAutoPlay(); goToStep(currentStep - 1); }
+            else if (e.key === 'ArrowRight' || e.key === 'd') { stopAutoPlay(); goToStep(currentStep + 1); }
+            else if (e.key === ' ') { e.preventDefault(); document.getElementById('btn-play').click(); }
+            else if (e.key === 'Home') { stopAutoPlay(); goToStep(0); }
+            else if (e.key === 'End') { stopAutoPlay(); goToStep(allGames[currentGameIndex].state_history.length - 1); }
+        });
+
+        // Try auto-loading game_data.json on page load
+        window.addEventListener('load', () => {
+            fetch('game_data.json')
+                .then(r => {
+                    if (!r.ok) throw new Error('Not found');
+                    return r.json();
+                })
+                .then(data => {
+                    processLoadedData(data);
+                })
+                .catch(() => {
+                    // No auto-load, user will need to click button
+                });
+        });
+    </script>
+</body>
+</html>

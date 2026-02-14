@@ -11,8 +11,10 @@ class BaseSimulation:
     def simulate(self):
         self.env.reset()
         while(self.env.done == False):
-            self.env.step(self.agent1.act())
-            self.env.step(self.agent2.act())
+            if(self.env.current_player == 1):
+                self.env.step(self.agent1.act())
+            else:
+                self.env.step(self.agent2.act())
         return self.env.score
     def simulate_n_games(self, n):
         scores = []
@@ -22,8 +24,10 @@ class BaseSimulation:
     def simulate_actions_display(self):
         self.env.reset()
         while(self.env.done == False):
-            self.env.step(self.agent1.act())
-            self.env.step(self.agent2.act())
+            if(self.env.current_player == 1):
+                self.env.step(self.agent1.act())
+            else:
+                self.env.step(self.agent2.act())
             self.env.render()
         return self.env.score
 class SimulateRandomVSrandom(BaseSimulation):
