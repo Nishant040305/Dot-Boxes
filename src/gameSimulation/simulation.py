@@ -1,4 +1,5 @@
 from agents.RandomAgent import RandomAgent
+from agents.GreedyAgent import GreedyAgent
 from env.BoardEnv import BaseBoardEnv
 class BaseSimulation:
     def __init__(self, env):
@@ -44,4 +45,30 @@ class SimulateRandomVSrandom(BaseSimulation):
         return super().simulate_n_games(n)
     def simulate_actions_display(self):
         self.set_agents(RandomAgent(self.env), RandomAgent(self.env))
+        return super().simulate_actions_display()
+
+class SimulateRandomVSgreedy(BaseSimulation):
+    def __init__(self, env):
+        super().__init__(env)
+    def simulate(self):
+        self.set_agents(RandomAgent(self.env), GreedyAgent(self.env))
+        return super().simulate()
+    def simulate_n_games(self, n):
+        self.set_agents(RandomAgent(self.env), GreedyAgent(self.env))
+        return super().simulate_n_games(n)
+    def simulate_actions_display(self):
+        self.set_agents(RandomAgent(self.env), GreedyAgent(self.env))
+        return super().simulate_actions_display()
+
+class SimulateGreedyVSgreedy(BaseSimulation):
+    def __init__(self, env):
+        super().__init__(env)
+    def simulate(self):
+        self.set_agents(GreedyAgent(self.env), GreedyAgent(self.env))
+        return super().simulate()
+    def simulate_n_games(self, n):
+        self.set_agents(GreedyAgent(self.env), GreedyAgent(self.env))
+        return super().simulate_n_games(n)
+    def simulate_actions_display(self):
+        self.set_agents(GreedyAgent(self.env), GreedyAgent(self.env))
         return super().simulate_actions_display()

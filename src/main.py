@@ -1,13 +1,10 @@
 from env.BoardEnv import BaseBoardEnv
 from agents.RandomAgent import RandomAgent
-from gameSimulation.simulation import SimulateRandomVSrandom
+from gameSimulation.simulation import SimulateRandomVSrandom, SimulateRandomVSgreedy,SimulateGreedyVSgreedy
 
 if __name__ == "__main__":
     env = BaseBoardEnv(4)
-    agent1 = RandomAgent(env)
-    agent2 = RandomAgent(env)
-    simulator = SimulateRandomVSrandom(env)
-    simulator.set_agents(agent1,agent2)
+    simulator = SimulateGreedyVSgreedy(env)
     score = simulator.simulate()
     print("Agent1: ",score[0])
     print("Agent2: ",score[1])
