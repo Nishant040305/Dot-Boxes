@@ -15,7 +15,7 @@ from gameSimulation.simulation import SimulateRandomVSrandom, SimulateRandomVSgr
 def record_game(board_size=3):
     """Record a single game and return state history."""
     env = BaseBoardEnv(board_size)
-    simulator = SimulateMinMaxVSgreedy(env,depth=2)
+    simulator = SimulateMinMaxVSgreedy(env,depth=3)
     
     # Run the simulation
     score = simulator.simulate()
