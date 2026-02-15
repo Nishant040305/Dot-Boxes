@@ -10,12 +10,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from env.BoardEnv import BaseBoardEnv
 from agents.RandomAgent import RandomAgent
-from gameSimulation.simulation import SimulateRandomVSrandom, SimulateRandomVSgreedy,SimulateGreedyVSgreedy,SimulateMinMaxVSgreedy
-
+from gameSimulation.simulation import SimulateRandomVSrandom, SimulateRandomVSgreedy,SimulateGreedyVSgreedy,SimulateMinMaxVSgreedy,SimulateMinMaxVSMinMax
+from gameSimulation.simulation import SimulateAlphaBetaVSAlphaBeta,SimulateAlphaBetaVSgreedy,SimulateAlphaBetaVSMinMax
 def record_game(board_size=3):
     """Record a single game and return state history."""
     env = BaseBoardEnv(board_size)
-    simulator = SimulateMinMaxVSgreedy(env,depth=3)
+    simulator = SimulateAlphaBetaVSAlphaBeta(env,depth1=6,depth2=3,parallel=True)
     
     # Run the simulation
     score = simulator.simulate()

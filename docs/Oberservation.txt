@@ -1,0 +1,69 @@
+i have tried 
+
+following models
+
+1. Random vs Random
+2. Random vs Greedy
+3. Greedy vs Greedy
+4. MinMax vs Greedy
+5. MinMax vs MinMax
+
+Random Model: it selects random actions
+
+
+Greedy Model: it selects the action with maximum immideate reward
+
+
+MinMax Model: it selects the action with maximum immideate reward but with depth of 3 i.e. follows minmax algorithm
+
+
+simulation Results:
+
+1. Random vs Random: both agents are randomly wining the match
+
+2. Random vs Greedy: greedy agent is wining the match
+
+3. Greedy vs Greedy: random greedy agent is winning the match
+
+4. MinMax vs Greedy: with depth of 3 minmax agent is wining every match with depth 1 most of the games are win by minmax
+
+5. MinMax vs MinMax: agent with depth 1 and 3 , 3 is winning almost every match with 8/10 matchs and in 1 and 2 depth 2 wins by ratio of 7/10
+
+some observations:
+
+1. Minmax algorithm is very slow even for small board size of 5x5 and depth 3 each completion tooks 2 minutes
+
+2. not scalable for larger board size with a great depth 
+
+Next plan of action:
+
+1. improve the Minmax algorithm's performance using multicore proccessing
+
+2. implement alpha beta pruning to improve the performance of Minmax algorithm
+
+Result of parallel minmax vs minmax:
+
+* Speedup: 4.0x faster
+
+Result of alpha beta pruning:
+
+* depth = 4 is now fessible option as it takes 1min compare to 30sec of minmax in depth = 3 
+
+
+Next plan of actions to optimize the performance of alphabetapruning:
+
+1. Move Ordering
+2. Transposition Tables
+
+Aim : is to get depth = 6 in 5min
+
+
+Result of alpha beta pruning with depth = 6:
+
+* depth = 6 is now fessible option as it takes 7min compare to 1min of minmax in depth = 4 
+(few more optimization might be able to reduce it to 5min)
+
+
+Next plan of action:
+
+1. RL agent (would compete the agent with alpha beta pruning depth = 4-3 in general) board scale N = 1 to 100

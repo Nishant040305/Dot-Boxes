@@ -2,6 +2,8 @@ from agents.agent import Agent
 from rewards.reward import SimpleReward
 import random
 import copy
+import multiprocessing
+import os
 
 
 class State:
@@ -15,11 +17,30 @@ class State:
         self.done = done
 
 
+def _evaluate_action(args):
+    """
+    Top-level worker function for multiprocessing.
+    Evaluates a single action by running minimax on the resulting state.
+
+    Must be a top-level function (not a method) so it can be pickled
+    by multiprocessing.Pool.
+    """
+    action, next_state, depth, player, env_N, reward_env = args
+    # Create a temporary agent just for the recursive search
+    agent = MinMaxAgent.__new__(MinMaxAgent)
+    agent.env = reward_env
+    agent.reward = SimpleReward(reward_env)
+    agent.depth = depth
+    _, score = agent._minmax(depth, player, next_state)
+    return action, score
+
+
 class MinMaxAgent(Agent):
-    def __init__(self, env, depth=3):
+    def __init__(self, env, depth=3, parallel=True):
         super().__init__(env)
         self.reward = SimpleReward(env)
         self.depth = depth
+        self.parallel = parallel
 
     @property
     def N(self):
@@ -28,8 +49,54 @@ class MinMaxAgent(Agent):
     def act(self):
         """Choose the best action from the current environment state using minimax."""
         state = self._get_state(self.env)
-        action, _ = self._minmax(self.depth, self.env.current_player, state)
+        player = self.env.current_player
+
+        if self.parallel:
+            return self._act_parallel(state, player)
+
+        action, _ = self._minmax(self.depth, player, state)
         return action
+
+    def _act_parallel(self, state, player):
+        """
+        Parallel root-level evaluation: each legal action is evaluated
+        on a separate CPU core using multiprocessing.Pool.
+        """
+        legal_actions = self._get_legal_actions(state)
+        is_maximizing = (state.current_player == player)
+
+        # Prepare arguments for each worker
+        work_items = []
+        for action in legal_actions:
+            next_state = self._get_next_state(state, action)
+            work_items.append((
+                action, next_state, self.depth - 1, player,
+                self.env.N, self.env,
+            ))
+
+        num_workers = min(len(work_items), os.cpu_count() or 4)
+        with multiprocessing.Pool(processes=num_workers) as pool:
+            results = pool.map(_evaluate_action, work_items)
+
+        # Collect best actions (with randomness among ties)
+        best_actions = []
+        best_score = -float('inf') if is_maximizing else float('inf')
+
+        for action, score in results:
+            if is_maximizing:
+                if score > best_score:
+                    best_score = score
+                    best_actions = [action]
+                elif score == best_score:
+                    best_actions.append(action)
+            else:
+                if score < best_score:
+                    best_score = score
+                    best_actions = [action]
+                elif score == best_score:
+                    best_actions.append(action)
+
+        return random.choice(best_actions)
 
     def _minmax(self, depth, player, state):
         """
@@ -67,7 +134,7 @@ class MinMaxAgent(Agent):
 
         # ---- recursive minimax ----
         is_maximizing = (state.current_player == player)
-        best_action = None
+        best_actions = []
         best_score = -float('inf') if is_maximizing else float('inf')
 
         for action in legal_actions:
@@ -77,13 +144,17 @@ class MinMaxAgent(Agent):
             if is_maximizing:
                 if score > best_score:
                     best_score = score
-                    best_action = action
+                    best_actions = [action]
+                elif score == best_score:
+                    best_actions.append(action)
             else:
                 if score < best_score:
                     best_score = score
-                    best_action = action
+                    best_actions = [action]
+                elif score == best_score:
+                    best_actions.append(action)
 
-        return best_action, best_score
+        return random.choice(best_actions), best_score
 
     def _get_best_actions(self, actions, state):
         best_action = actions[0]

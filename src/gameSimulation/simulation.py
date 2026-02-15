@@ -1,6 +1,7 @@
 from agents.RandomAgent import RandomAgent
 from agents.GreedyAgent import GreedyAgent
 from agents.MinMaxAgent import MinMaxAgent
+from agents.AlphaBetaAgent import AlphaBetaAgent
 from env.BoardEnv import BaseBoardEnv
 class BaseSimulation:
     def __init__(self, env):
@@ -75,15 +76,79 @@ class SimulateGreedyVSgreedy(BaseSimulation):
         return super().simulate_actions_display()
 
 class SimulateMinMaxVSgreedy(BaseSimulation):
-    def __init__(self, env,depth=1):
+    def __init__(self, env, depth=1, parallel=True):
         super().__init__(env)
         self.depth = depth
+        self.parallel = parallel
     def simulate(self):
-        self.set_agents(MinMaxAgent(self.env,depth=self.depth), GreedyAgent(self.env))
+        self.set_agents(MinMaxAgent(self.env, depth=self.depth, parallel=self.parallel), GreedyAgent(self.env))
         return super().simulate()
     def simulate_n_games(self, n):
-        self.set_agents(MinMaxAgent(self.env,depth=self.depth), GreedyAgent(self.env))
+        self.set_agents(MinMaxAgent(self.env, depth=self.depth, parallel=self.parallel), GreedyAgent(self.env))
         return super().simulate_n_games(n)
     def simulate_actions_display(self):
-        self.set_agents(MinMaxAgent(self.env,depth=self.depth), GreedyAgent(self.env))
+        self.set_agents(MinMaxAgent(self.env, depth=self.depth, parallel=self.parallel), GreedyAgent(self.env))
+        return super().simulate_actions_display()
+
+class SimulateMinMaxVSMinMax(BaseSimulation):
+    def __init__(self, env, depth1=1, depth2=1, parallel=True):
+        super().__init__(env)
+        self.depth1 = depth1
+        self.depth2 = depth2
+        self.parallel = parallel
+    def simulate(self):
+        self.set_agents(MinMaxAgent(self.env, depth=self.depth1, parallel=self.parallel), MinMaxAgent(self.env, depth=self.depth2, parallel=self.parallel))
+        return super().simulate()
+    def simulate_n_games(self, n):
+        self.set_agents(MinMaxAgent(self.env, depth=self.depth1, parallel=self.parallel), MinMaxAgent(self.env, depth=self.depth2, parallel=self.parallel))
+        return super().simulate_n_games(n)
+    def simulate_actions_display(self):
+        self.set_agents(MinMaxAgent(self.env, depth=self.depth1, parallel=self.parallel), MinMaxAgent(self.env, depth=self.depth2, parallel=self.parallel))
+        return super().simulate_actions_display()
+
+class SimulateAlphaBetaVSgreedy(BaseSimulation):
+    def __init__(self, env, depth=3, parallel=True):
+        super().__init__(env)
+        self.depth = depth
+        self.parallel = parallel
+    def simulate(self):
+        self.set_agents(AlphaBetaAgent(self.env, depth=self.depth, parallel=self.parallel), GreedyAgent(self.env))
+        return super().simulate()
+    def simulate_n_games(self, n):
+        self.set_agents(AlphaBetaAgent(self.env, depth=self.depth, parallel=self.parallel), GreedyAgent(self.env))
+        return super().simulate_n_games(n)
+    def simulate_actions_display(self):
+        self.set_agents(AlphaBetaAgent(self.env, depth=self.depth, parallel=self.parallel), GreedyAgent(self.env))
+        return super().simulate_actions_display()
+
+class SimulateAlphaBetaVSMinMax(BaseSimulation):
+    def __init__(self, env, depth_ab=3, depth_mm=3, parallel=True):
+        super().__init__(env)
+        self.depth_ab = depth_ab
+        self.depth_mm = depth_mm
+        self.parallel = parallel
+    def simulate(self):
+        self.set_agents(AlphaBetaAgent(self.env, depth=self.depth_ab, parallel=self.parallel), MinMaxAgent(self.env, depth=self.depth_mm, parallel=self.parallel))
+        return super().simulate()
+    def simulate_n_games(self, n):
+        self.set_agents(AlphaBetaAgent(self.env, depth=self.depth_ab, parallel=self.parallel), MinMaxAgent(self.env, depth=self.depth_mm, parallel=self.parallel))
+        return super().simulate_n_games(n)
+    def simulate_actions_display(self):
+        self.set_agents(AlphaBetaAgent(self.env, depth=self.depth_ab, parallel=self.parallel), MinMaxAgent(self.env, depth=self.depth_mm, parallel=self.parallel))
+        return super().simulate_actions_display()
+
+class SimulateAlphaBetaVSAlphaBeta(BaseSimulation):
+    def __init__(self, env, depth1=3, depth2=3, parallel=True):
+        super().__init__(env)
+        self.depth1 = depth1
+        self.depth2 = depth2
+        self.parallel = parallel
+    def simulate(self):
+        self.set_agents(AlphaBetaAgent(self.env, depth=self.depth1, parallel=self.parallel), AlphaBetaAgent(self.env, depth=self.depth2, parallel=self.parallel))
+        return super().simulate()
+    def simulate_n_games(self, n):
+        self.set_agents(AlphaBetaAgent(self.env, depth=self.depth1, parallel=self.parallel), AlphaBetaAgent(self.env, depth=self.depth2, parallel=self.parallel))
+        return super().simulate_n_games(n)
+    def simulate_actions_display(self):
+        self.set_agents(AlphaBetaAgent(self.env, depth=self.depth1, parallel=self.parallel), AlphaBetaAgent(self.env, depth=self.depth2, parallel=self.parallel))
         return super().simulate_actions_display()
