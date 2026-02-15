@@ -1,5 +1,6 @@
 from agents.RandomAgent import RandomAgent
 from agents.GreedyAgent import GreedyAgent
+from agents.MinMaxAgent import MinMaxAgent
 from env.BoardEnv import BaseBoardEnv
 class BaseSimulation:
     def __init__(self, env):
@@ -71,4 +72,18 @@ class SimulateGreedyVSgreedy(BaseSimulation):
         return super().simulate_n_games(n)
     def simulate_actions_display(self):
         self.set_agents(GreedyAgent(self.env), GreedyAgent(self.env))
+        return super().simulate_actions_display()
+
+class SimulateMinMaxVSgreedy(BaseSimulation):
+    def __init__(self, env,depth=1):
+        super().__init__(env)
+        self.depth = depth
+    def simulate(self):
+        self.set_agents(MinMaxAgent(self.env,depth=self.depth), GreedyAgent(self.env))
+        return super().simulate()
+    def simulate_n_games(self, n):
+        self.set_agents(MinMaxAgent(self.env,depth=self.depth), GreedyAgent(self.env))
+        return super().simulate_n_games(n)
+    def simulate_actions_display(self):
+        self.set_agents(MinMaxAgent(self.env,depth=self.depth), GreedyAgent(self.env))
         return super().simulate_actions_display()
