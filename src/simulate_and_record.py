@@ -12,10 +12,11 @@ from env.BoardEnv import BaseBoardEnv
 from agents.RandomAgent import RandomAgent
 from gameSimulation.simulation import SimulateRandomVSrandom, SimulateRandomVSgreedy,SimulateGreedyVSgreedy,SimulateMinMaxVSgreedy,SimulateMinMaxVSMinMax
 from gameSimulation.simulation import SimulateAlphaBetaVSAlphaBeta,SimulateAlphaBetaVSgreedy,SimulateAlphaBetaVSMinMax
+from gameSimulation.simulation import SimulateAlphaZeroVsRandom, SimulateAlphaZeroVsGreedy,SimulateAlphaZeroVsAlphaBeta
 def record_game(board_size=3):
     """Record a single game and return state history."""
     env = BaseBoardEnv(board_size)
-    simulator = SimulateAlphaBetaVSAlphaBeta(env,depth1=6,depth2=3,parallel=True)
+    simulator = SimulateAlphaZeroVsAlphaBeta(env,n_simulations=400,ab_depth=2)
     
     # Run the simulation
     score = simulator.simulate()

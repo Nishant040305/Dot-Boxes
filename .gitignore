@@ -2,3 +2,5 @@ venv
 __pycache__
 game_data.json
 archive
+*.json
+*.pth

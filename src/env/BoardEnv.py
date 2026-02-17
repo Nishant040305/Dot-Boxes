@@ -152,5 +152,17 @@ class BaseBoardEnv:
                 print("  It's a draw!")
         print()
     
+    def clone(self):
+        """Create a lightweight copy of the environment for MCTS."""
+        new_env = BaseBoardEnv(self.N)
+        new_env.horizontal_edges = [row[:] for row in self.horizontal_edges]
+        new_env.vertical_edges = [row[:] for row in self.vertical_edges]
+        new_env.boxes = [row[:] for row in self.boxes]
+        new_env.current_player = self.current_player
+        new_env.done = self.done
+        new_env.score = self.score[:]
+        # Intentionally do NOT copy action_history or state_history to save time/memory
+        return new_env
+
     def close(self):
         pass
