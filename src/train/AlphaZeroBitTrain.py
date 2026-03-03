@@ -56,7 +56,7 @@ PHASES = [
         'episodes_per_iter': 100,
         'epochs': 10,
         'lr': 0.002,
-        'temp_threshold': 15,    # moves before switching to exploit
+        'temp_threshold': 8,    # Reduced from 15 (game is short)
         'temp_explore': 1.0,
         'temp_exploit': 0.3,
     },
@@ -67,7 +67,7 @@ PHASES = [
         'episodes_per_iter': 100,
         'epochs': 15,
         'lr': 0.001,
-        'temp_threshold': 10,
+        'temp_threshold': 6,    # Reduced from 10
         'temp_explore': 0.8,
         'temp_exploit': 0.1,
     },
@@ -78,7 +78,7 @@ PHASES = [
         'episodes_per_iter': 100,
         'epochs': 20,
         'lr': 0.0003,
-        'temp_threshold': 6,
+        'temp_threshold': 4,    # Reduced from 6
         'temp_explore': 0.8,
         'temp_exploit': 0.0,
     },
