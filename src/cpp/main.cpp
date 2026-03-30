@@ -44,6 +44,11 @@ static void print_help() {
 }
 
 int main(int argc, char* argv[]) {
+    // Limit LibTorch internal threads — without this, LibTorch spawns
+    // N_CORES threads for inference, starving worker threads.
+    torch::set_num_threads(1);
+    torch::set_num_interop_threads(1);
+
     azb::TrainConfig cfg;
     bool cols_set = false;
     bool phased = false;

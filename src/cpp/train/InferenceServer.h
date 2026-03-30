@@ -82,15 +82,35 @@ public:
 
             {
                 std::unique_lock<std::mutex> lock(req_mu_);
-                req_cv_.wait_for(lock, std::chrono::milliseconds(5),
-                    [&] { return !requests_.empty() || stopped_.load(); });
+                // Wait until at least one request arrives (or shutdown)
+                req_cv_.wait(lock, [&] { return !requests_.empty() || stopped_.load(); });
                 if (stopped_.load() && requests_.empty()) break;
 
-                // Drain up to max_batch_ requests
+                // Grab the first request
+                batch.push_back(std::move(requests_.front()));
+                requests_.pop();
+            }
+
+            // Brief spin-wait to accumulate more requests into the batch.
+            // This is critical: without this, we process batches of size 1,
+            // wasting parallelism. With this, workers have time to submit
+            // their requests before we run inference.
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(500);
+            while (static_cast<int>(batch.size()) < max_batch_) {
+                std::unique_lock<std::mutex> lock(req_mu_);
+                if (requests_.empty()) {
+                    // Wait briefly for more
+                    auto now = std::chrono::steady_clock::now();
+                    if (now >= deadline) break;
+                    req_cv_.wait_until(lock, deadline,
+                        [&] { return !requests_.empty() || stopped_.load(); });
+                }
+                // Drain whatever is available
                 while (!requests_.empty() && static_cast<int>(batch.size()) < max_batch_) {
                     batch.push_back(std::move(requests_.front()));
                     requests_.pop();
                 }
+                if (std::chrono::steady_clock::now() >= deadline) break;
             }
 
             if (batch.empty()) continue;
