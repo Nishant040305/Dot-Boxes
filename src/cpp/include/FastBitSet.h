@@ -102,6 +102,25 @@ public:
 
     uint64_t* raw() { return data_.data(); }
     const uint64_t* raw() const { return data_.data(); }
+
+    /// 128-bit hash: two independent 64-bit polynomial hashes over all words.
+    /// Collision-safe even for boards up to 20x20 (~1240 bits of state).
+    std::pair<uint64_t, uint64_t> hash128() const {
+        // Two independent FNV-like hashes with different primes
+        uint64_t h0 = 0xcbf29ce484222325ULL ^ num_bits_;
+        uint64_t h1 = 0x9e3779b97f4a7c15ULL ^ num_bits_;
+        for (uint64_t w : data_) {
+            h0 ^= w;
+            h0 *= 0x100000001b3ULL;       // FNV prime
+            h0 ^= h0 >> 33;
+
+            h1 ^= w;
+            h1 *= 0x517cc1b727220a95ULL;  // different multiplier
+            h1 ^= h1 >> 27;
+            h1 *= 0x94d049bb133111ebULL;
+        }
+        return {h0, h1};
+    }
 };
 
 }  // namespace azb

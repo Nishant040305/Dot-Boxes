@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <random>
 #include <unordered_map>
 #include <utility>
@@ -17,12 +18,32 @@ struct PolicyValue {
 };
 
 /// Abstract interface for policy-value function.
-/// Implementations can wrap a LibTorch model, ONNX, or any other backend.
 class PolicyValueFn {
 public:
     virtual ~PolicyValueFn() = default;
     virtual PolicyValue operator()(const StateSnapshot& state) = 0;
 };
+
+// ── 128-bit cache key ──────────────────────────────────────────────────
+// Using a pair<uint64_t, uint64_t> as map key.
+// Practically zero collision probability for boards up to 20x20.
+
+using StateKey128 = std::pair<uint64_t, uint64_t>;
+
+struct StateKey128Hasher {
+    size_t operator()(const StateKey128& k) const noexcept {
+        // XOR-fold both halves with golden-ratio mixing
+        uint64_t h = k.first ^ (k.second * 0x9e3779b97f4a7c15ULL);
+        h ^= h >> 30;
+        h *= 0xbf58476d1ce4e5b9ULL;
+        h ^= h >> 27;
+        return static_cast<size_t>(h);
+    }
+};
+
+using InferenceCache = std::unordered_map<StateKey128, PolicyValue, StateKey128Hasher>;
+
+// ── AlphaZero Bit Agent ───────────────────────────────────────────────
 
 /// MCTS-based AlphaZero agent for Dots-and-Boxes.
 /// Supports rectangular boards (rows x cols).
@@ -67,6 +88,24 @@ private:
         return node.visits == 0 ? 0.0f : node.value_sum / static_cast<float>(node.visits);
     }
 
+    /// Compute a 128-bit cache key from the full board state.
+    /// Combines hash128() of all four FastBitsets + current_player.
+    StateKey128 state_key(const NodeState& s) const {
+        auto [h0a, h1a] = s.h_edges.hash128();
+        auto [h0b, h1b] = s.v_edges.hash128();
+        auto [h0c, h1c] = s.boxes_p1.hash128();
+        auto [h0d, h1d] = s.boxes_p2.hash128();
+        // Mix all four hash pairs + player into two 64-bit values
+        uint64_t lo = h0a ^ (h0b * 0x517cc1b727220a95ULL)
+                          ^ (h0c * 0x6c62272e07bb0142ULL)
+                          ^ (h0d * 0x94d049bb133111ebULL)
+                          ^ static_cast<uint64_t>(s.current_player);
+        uint64_t hi = h1a ^ (h1b * 0x94d049bb133111ebULL)
+                          ^ (h1c * 0x517cc1b727220a95ULL)
+                          ^ (h1d * 0x6c62272e07bb0142ULL);
+        return {lo, hi};
+    }
+
     void precompute_edge_bits();
     NodeState apply_action(const NodeState& state, const Action& action) const;
     std::vector<Action> legal_actions(const NodeState& state) const;
@@ -95,6 +134,10 @@ private:
     PolicyValueFn& model_;
     std::mt19937 rng_;
     std::unordered_map<uint32_t, int> last_visit_counts_;
+
+    // Inference cache: board state → (policy, value)
+    // Cleared at the start of each act() call.
+    InferenceCache inference_cache_;
 };
 
 }  // namespace azb

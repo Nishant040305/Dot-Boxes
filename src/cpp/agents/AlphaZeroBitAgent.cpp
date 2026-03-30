@@ -152,17 +152,33 @@ float AlphaZeroBitAgent::evaluate_and_expand(Node& node, bool is_root) {
         return (my_score > opp_score) ? 1.0f : -1.0f;
     }
 
-    PolicyValue pv = model_(StateSnapshot{
-        node.state.h_edges,
-        node.state.v_edges,
-        node.state.boxes_p1,
-        node.state.boxes_p2,
-        node.state.current_player,
-        node.state.done,
-        node.state.score_p1,
-        node.state.score_p2,
-        Action{-1, -1, -1},
-    });
+    PolicyValue pv;
+    if (is_root) {
+        // Always call model at root to allow Dirichlet noise injection
+        pv = model_(StateSnapshot{
+            node.state.h_edges, node.state.v_edges,
+            node.state.boxes_p1, node.state.boxes_p2,
+            node.state.current_player, node.state.done,
+            node.state.score_p1, node.state.score_p2,
+            Action{-1, -1, -1},
+        });
+    } else {
+        // Check inference cache — skip redundant NN calls for repeated states
+        const StateKey128 key = state_key(node.state);
+        auto it = inference_cache_.find(key);
+        if (it != inference_cache_.end()) {
+            pv = it->second;
+        } else {
+            pv = model_(StateSnapshot{
+                node.state.h_edges, node.state.v_edges,
+                node.state.boxes_p1, node.state.boxes_p2,
+                node.state.current_player, node.state.done,
+                node.state.score_p1, node.state.score_p2,
+                Action{-1, -1, -1},
+            });
+            inference_cache_.emplace(key, pv);
+        }
+    }
 
     if (static_cast<int>(pv.policy.size()) != action_size_) {
         throw std::runtime_error("Policy size mismatch");
@@ -320,6 +336,7 @@ Action AlphaZeroBitAgent::best_action(const Node& root, float temperature) {
 
 Action AlphaZeroBitAgent::act(const BitBoardEnv& env, bool return_probs, float temperature) {
     last_visit_counts_.clear();
+    inference_cache_.clear();  // Fresh cache per move — avoids stale entries
     Node root;
     root.state = NodeState{
         env.h_edges(), env.v_edges(), env.boxes_p1(), env.boxes_p2(),
