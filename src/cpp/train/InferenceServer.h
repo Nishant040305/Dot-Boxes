@@ -95,7 +95,7 @@ public:
             // This is critical: without this, we process batches of size 1,
             // wasting parallelism. With this, workers have time to submit
             // their requests before we run inference.
-            auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(500);
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(100);
             while (static_cast<int>(batch.size()) < max_batch_) {
                 std::unique_lock<std::mutex> lock(req_mu_);
                 if (requests_.empty()) {

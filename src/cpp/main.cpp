@@ -44,9 +44,10 @@ static void print_help() {
 }
 
 int main(int argc, char* argv[]) {
-    // Limit LibTorch internal threads — without this, LibTorch spawns
-    // N_CORES threads for inference, starving worker threads.
-    torch::set_num_threads(1);
+    // LibTorch internal threads for matrix ops in inference.
+    // Too many = starves workers; too few = slow inference.
+    // Sweet spot: ~4 for a model with 6 res blocks.
+    torch::set_num_threads(2);
     torch::set_num_interop_threads(1);
 
     azb::TrainConfig cfg;

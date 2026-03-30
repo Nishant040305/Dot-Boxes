@@ -33,7 +33,7 @@ struct TrainConfig {
     std::vector<Phase> phases;
 
     // Self-play (defaults if not in phase)
-    int num_workers       = 16;
+    int num_workers       = 64;
     int mcts_sims         = 400;
     int episodes_per_iter = 100;
 
@@ -65,7 +65,7 @@ struct TrainConfig {
     std::string model_dir  = "../models";
 
     // Inference batching
-    int max_inference_batch = 16;
+    int max_inference_batch = 64;
 
     /// Helper to get default phases
     static std::vector<Phase> get_default_phases() {
