@@ -40,13 +40,14 @@ static void print_help() {
               << "  --hidden N        Hidden size (default: 256)\n"
               << "  --blocks N        Residual blocks (default: 6)\n"
               << "  --model-dir PATH  Model directory (default: ../models)\n"
-              << "  --help            Show this help\n";
+              << "  --help            Show this help\n"
+              << "  --phased          Use phased training (default: false)\n";
 }
 
 int main(int argc, char* argv[]) {
     // LibTorch internal threads for matrix ops in inference.
     // Too many = starves workers; too few = slow inference.
-    // Sweet spot: ~4 for a model with 6 res blocks.
+    // Sweet spot: ~2 for a model with 6 res blocks.
     torch::set_num_threads(2);
     torch::set_num_interop_threads(1);
 
