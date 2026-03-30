@@ -125,17 +125,20 @@ struct AlphaZeroBitNetImpl : torch::nn::Module {
     }
 
     /// Convert a single StateSnapshot to a feature tensor.
-    torch::Tensor preprocess(const StateSnapshot& state) {
-        auto features = torch::zeros({input_size}, torch::kFloat32);
+    /// Static overload — requires no model weights, safe to call without a trained net.
+    static torch::Tensor preprocess(const StateSnapshot& state, int rows, int cols) {
+        const int n_h   = (rows + 1) * cols;
+        const int n_v   = rows * (cols + 1);
+        const int n_box = rows * cols;
+        const int in_sz = n_h + n_v + n_box + 1;
+
+        auto features = torch::zeros({in_sz}, torch::kFloat32);
         float* ptr = features.data_ptr<float>();
 
-        // Horizontal edges
         state.h_edges.for_each_set_bit([&](size_t i) { ptr[i] = 1.0f; });
-        // Vertical edges
-        state.v_edges.for_each_set_bit([&](size_t i) { ptr[n_h_edges + i] = 1.0f; });
-        
-        // Box ownership
-        const int box_offset = n_h_edges + n_v_edges;
+        state.v_edges.for_each_set_bit([&](size_t i) { ptr[n_h + i] = 1.0f; });
+
+        const int box_offset = n_h + n_v;
         state.boxes_p1.for_each_set_bit([&](size_t i) {
             ptr[box_offset + i] = (state.current_player == 1) ? 1.0f : -1.0f;
         });
@@ -143,10 +146,13 @@ struct AlphaZeroBitNetImpl : torch::nn::Module {
             ptr[box_offset + i] = (state.current_player == 2) ? 1.0f : -1.0f;
         });
 
-        // Player flag
-        ptr[input_size - 1] = (state.current_player == 1) ? 1.0f : -1.0f;
-
+        ptr[in_sz - 1] = (state.current_player == 1) ? 1.0f : -1.0f;
         return features;
+    }
+
+    /// Instance convenience overload — delegates to the static version.
+    torch::Tensor preprocess(const StateSnapshot& state) {
+        return AlphaZeroBitNetImpl::preprocess(state, rows, cols);
     }
 
     /// Batch preprocess from raw bitmask arrays.

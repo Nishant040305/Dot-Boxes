@@ -52,12 +52,6 @@ public:
                                 cfg_.dirichlet_alpha, cfg_.dirichlet_epsilon,
                                 cfg_.fpu_reduction, true);
 
-        // We need a separate AlphaZeroBitNet just for preprocess() calls.
-        // Since preprocess is a pure function of the snapshot, a local lightweight
-        // copy (never trained) is fine.
-        AlphaZeroBitNet preprocess_net(cfg_.rows, cfg_.cols, /*hidden*/ 8, /*blocks*/ 1);
-        preprocess_net->eval();
-
         while (!stop_.load()) {
             env.reset();
             struct HistoryItem {
@@ -98,7 +92,8 @@ public:
             samples.reserve(game_history.size());
 
             for (const auto& item : game_history) {
-                auto state_tensor = preprocess_net->preprocess(item.snapshot);
+                // Feature tensor via static preprocess — no model instance needed
+                auto state_tensor = AlphaZeroBitNetImpl::preprocess(item.snapshot, cfg_.rows, cfg_.cols);
 
                 auto policy_tensor = torch::zeros({action_size}, torch::kFloat32);
                 auto pacc = policy_tensor.accessor<float, 1>();
