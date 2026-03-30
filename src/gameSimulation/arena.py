@@ -120,6 +120,15 @@ def make_agent(agent_type, env, **kwargs):
         add_noise = kwargs.get('add_noise', False)
         return AlphaZeroBitAgent(env, model_path=model_path, n_simulations=n_sims, device=device, checkpoint=checkpoint, add_noise=add_noise)
     
+    elif agent_type == 'alphazero_cpp':
+        from agents.AlphaZeroCppAgent import AlphaZeroCppAgent
+        n_sims = kwargs.get('n_simulations', 400)
+        model_path = kwargs.get('model_path', _find_model_path(f"alphazero_{env.N}x{env.N}.pt"))
+        hidden = kwargs.get('hidden_size', 256)
+        blocks = kwargs.get('num_res_blocks', 6)
+        return AlphaZeroCppAgent(env, model_path=model_path, n_simulations=n_sims,
+                                 hidden_size=hidden, num_res_blocks=blocks)
+    
     elif agent_type == 'mcts':
         from agents.MCTSAgent import MCTSAgent
         n_sims = kwargs.get('n_simulations', 400)
@@ -128,7 +137,7 @@ def make_agent(agent_type, env, **kwargs):
     else:
         raise ValueError(
             f"Unknown agent type: '{agent_type}'. "
-            f"Available: random, greedy, minmax, alphabeta, alphazero, alphazero_bit, mcts"
+            f"Available: random, greedy, minmax, alphabeta, alphazero, alphazero_bit, alphazero_cpp, mcts"
         )
 
 

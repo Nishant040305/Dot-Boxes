@@ -3,6 +3,7 @@ from agents.GreedyAgent import GreedyAgent
 from agents.MinMaxAgent import MinMaxAgent
 from agents.AlphaBetaAgent import AlphaBetaAgent
 from agents.AlphaZeroAgent import AlphaZeroAgent
+from agents.AlphaZeroCppAgent import AlphaZeroCppAgent
 from env.BoardEnv import BaseBoardEnv
 import os
 import torch
@@ -220,4 +221,65 @@ class SimulateAlphaZeroVsAlphaBeta(BaseAlphaZeroSimulation):
         return super().simulate_n_games(n)
     def simulate_actions_display(self):
         self.set_agents(self._get_az_agent(), AlphaBetaAgent(self.env, depth=self.ab_depth, parallel=self.parallel))
+        return super().simulate_actions_display()
+
+
+class BaseAlphaZeroCppSimulation(BaseSimulation):
+    """Base class for simulations using the C++ AlphaZero agent."""
+    def __init__(self, env, model_path=None, n_simulations=400, hidden_size=256, num_res_blocks=6):
+        super().__init__(env)
+        self.n_simulations = n_simulations
+        self.hidden_size = hidden_size
+        self.num_res_blocks = num_res_blocks
+        
+        if model_path is None:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            root_dir = os.path.dirname(os.path.dirname(current_dir))
+            models_dir = os.path.join(root_dir, 'models')
+            self.model_path = os.path.join(models_dir, f"alphazero_{env.N}x{env.N}.pt")
+        else:
+            self.model_path = model_path
+
+    def _get_az_cpp_agent(self):
+        return AlphaZeroCppAgent(self.env, model_path=self.model_path,
+                                 n_simulations=self.n_simulations,
+                                 hidden_size=self.hidden_size,
+                                 num_res_blocks=self.num_res_blocks)
+
+class SimulateAlphaZeroCppVsRandom(BaseAlphaZeroCppSimulation):
+    def simulate(self):
+        self.set_agents(self._get_az_cpp_agent(), RandomAgent(self.env))
+        return super().simulate()
+    def simulate_n_games(self, n):
+        self.set_agents(self._get_az_cpp_agent(), RandomAgent(self.env))
+        return super().simulate_n_games(n)
+    def simulate_actions_display(self):
+        self.set_agents(self._get_az_cpp_agent(), RandomAgent(self.env))
+        return super().simulate_actions_display()
+
+class SimulateAlphaZeroCppVsGreedy(BaseAlphaZeroCppSimulation):
+    def simulate(self):
+        self.set_agents(self._get_az_cpp_agent(), GreedyAgent(self.env))
+        return super().simulate()
+    def simulate_n_games(self, n):
+        self.set_agents(self._get_az_cpp_agent(), GreedyAgent(self.env))
+        return super().simulate_n_games(n)
+    def simulate_actions_display(self):
+        self.set_agents(self._get_az_cpp_agent(), GreedyAgent(self.env))
+        return super().simulate_actions_display()
+
+class SimulateAlphaZeroCppVsAlphaBeta(BaseAlphaZeroCppSimulation):
+    def __init__(self, env, model_path=None, n_simulations=400, ab_depth=3, parallel=True,
+                 hidden_size=256, num_res_blocks=6):
+        super().__init__(env, model_path, n_simulations, hidden_size, num_res_blocks)
+        self.ab_depth = ab_depth
+        self.parallel = parallel
+    def simulate(self):
+        self.set_agents(self._get_az_cpp_agent(), AlphaBetaAgent(self.env, depth=self.ab_depth, parallel=self.parallel))
+        return super().simulate()
+    def simulate_n_games(self, n):
+        self.set_agents(self._get_az_cpp_agent(), AlphaBetaAgent(self.env, depth=self.ab_depth, parallel=self.parallel))
+        return super().simulate_n_games(n)
+    def simulate_actions_display(self):
+        self.set_agents(self._get_az_cpp_agent(), AlphaBetaAgent(self.env, depth=self.ab_depth, parallel=self.parallel))
         return super().simulate_actions_display()

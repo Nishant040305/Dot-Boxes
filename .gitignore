@@ -4,3 +4,6 @@ game_data.json
 archive
 *.json
 *.pth
+*.pt
+build/
+libtorch/

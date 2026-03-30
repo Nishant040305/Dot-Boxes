@@ -5,21 +5,26 @@
 
 namespace azb {
 
-std::unordered_map<int, BitBoardEnv::Masks> BitBoardEnv::masks_cache_;
+std::unordered_map<uint64_t, BitBoardEnv::Masks> BitBoardEnv::masks_cache_;
 
-BitBoardEnv::BitBoardEnv(int n) : n_(n) {
-    if (n_ <= 0) {
-        throw std::invalid_argument("N must be positive");
+BitBoardEnv::BitBoardEnv(int n) : rows_(n), cols_(n) { init_common(); }
+
+BitBoardEnv::BitBoardEnv(int rows, int cols) : rows_(rows), cols_(cols) { init_common(); }
+
+void BitBoardEnv::init_common() {
+    if (rows_ <= 0 || cols_ <= 0) {
+        throw std::invalid_argument("rows and cols must be positive");
     }
-    n_h_edges_ = (n_ + 1) * n_;
-    n_v_edges_ = n_ * (n_ + 1);
+    n_h_edges_ = (rows_ + 1) * cols_;
+    n_v_edges_ = rows_ * (cols_ + 1);
     total_edges_ = n_h_edges_ + n_v_edges_;
-    total_boxes_ = n_ * n_;
+    total_boxes_ = rows_ * cols_;
 
-    if (masks_cache_.find(n_) == masks_cache_.end()) {
-        masks_cache_[n_] = precompute_masks(n_);
+    const uint64_t key = make_cache_key(rows_, cols_);
+    if (masks_cache_.find(key) == masks_cache_.end()) {
+        masks_cache_[key] = precompute_masks(rows_, cols_);
     }
-    masks_ = &masks_cache_.at(n_);
+    masks_ = &masks_cache_.at(key);
     reset();
 }
 
@@ -47,12 +52,12 @@ StepResult BitBoardEnv::step(const Action& action) {
     const int r = action.r;
     const int c = action.c;
     const uint64_t bit = (edge_type == 0)
-        ? (1ULL << static_cast<uint64_t>(r * n_ + c))
-        : (1ULL << static_cast<uint64_t>(r * (n_ + 1) + c));
+        ? (1ULL << static_cast<uint64_t>(r * cols_ + c))
+        : (1ULL << static_cast<uint64_t>(r * (cols_ + 1) + c));
 
     const std::vector<std::pair<int, int>>& adj_boxes =
-        (edge_type == 0) ? masks_->h_edge_adj_boxes[r * n_ + c]
-                         : masks_->v_edge_adj_boxes[r * (n_ + 1) + c];
+        (edge_type == 0) ? masks_->h_edge_adj_boxes[r * cols_ + c]
+                         : masks_->v_edge_adj_boxes[r * (cols_ + 1) + c];
 
     if (edge_type == 0) {
         h_edges_ |= bit;
@@ -66,9 +71,9 @@ StepResult BitBoardEnv::step(const Action& action) {
     for (const auto& box : adj_boxes) {
         const int box_r = box.first;
         const int box_c = box.second;
-        const uint64_t h_mask = masks_->box_h_masks[box_r * n_ + box_c];
-        const uint64_t v_mask = masks_->box_v_masks[box_r * n_ + box_c];
-        const uint64_t box_bit = 1ULL << static_cast<uint64_t>(box_r * n_ + box_c);
+        const uint64_t h_mask = masks_->box_h_masks[box_r * cols_ + box_c];
+        const uint64_t v_mask = masks_->box_v_masks[box_r * cols_ + box_c];
+        const uint64_t box_bit = 1ULL << static_cast<uint64_t>(box_r * cols_ + box_c);
 
         if ((h_edges_ & h_mask) == h_mask && (v_edges_ & v_mask) == v_mask) {
             if ((boxes_p1_ & box_bit) == 0 && (boxes_p2_ & box_bit) == 0) {
@@ -106,8 +111,8 @@ std::vector<Action> BitBoardEnv::get_available_actions() const {
     while (tmp) {
         const uint64_t bit = tmp & (~tmp + 1);
         const int idx = static_cast<int>(__builtin_ctzll(tmp));
-        const int r = idx / n_;
-        const int c = idx % n_;
+        const int r = idx / cols_;
+        const int c = idx % cols_;
         actions.push_back({0, r, c});
         tmp ^= bit;
     }
@@ -116,8 +121,8 @@ std::vector<Action> BitBoardEnv::get_available_actions() const {
     while (tmp) {
         const uint64_t bit = tmp & (~tmp + 1);
         const int idx = static_cast<int>(__builtin_ctzll(tmp));
-        const int r = idx / (n_ + 1);
-        const int c = idx % (n_ + 1);
+        const int r = idx / (cols_ + 1);
+        const int c = idx % (cols_ + 1);
         actions.push_back({1, r, c});
         tmp ^= bit;
     }
@@ -132,7 +137,7 @@ uint64_t BitBoardEnv::get_legal_actions_mask() const {
 }
 
 BitBoardEnv BitBoardEnv::clone() const {
-    BitBoardEnv env(n_);
+    BitBoardEnv env(rows_, cols_);
     env.h_edges_ = h_edges_;
     env.v_edges_ = v_edges_;
     env.boxes_p1_ = boxes_p1_;
@@ -162,25 +167,24 @@ StateSnapshot BitBoardEnv::get_state_snapshot(const Action& action) const {
 
 std::string BitBoardEnv::render() const {
     std::ostringstream out;
-    const int dots = n_ + 1;
 
-    for (int r = 0; r < dots; r++) {
-        for (int c = 0; c < n_; c++) {
+    for (int r = 0; r < rows_ + 1; r++) {
+        for (int c = 0; c < cols_; c++) {
             out << ".";
-            const int h_idx = r * n_ + c;
+            const int h_idx = r * cols_ + c;
             const bool has = (h_edges_ >> h_idx) & 1ULL;
             out << (has ? "---" : "   ");
         }
         out << ".\n";
 
-        if (r == n_) break;
+        if (r == rows_) break;
 
-        for (int c = 0; c < n_ + 1; c++) {
-            const int v_idx = r * (n_ + 1) + c;
+        for (int c = 0; c < cols_ + 1; c++) {
+            const int v_idx = r * (cols_ + 1) + c;
             const bool has = (v_edges_ >> v_idx) & 1ULL;
             out << (has ? "|" : " ");
-            if (c < n_) {
-                const int box_idx = r * n_ + c;
+            if (c < cols_) {
+                const int box_idx = r * cols_ + c;
                 char owner = ' ';
                 if ((boxes_p1_ >> box_idx) & 1ULL) owner = '1';
                 if ((boxes_p2_ >> box_idx) & 1ULL) owner = '2';
@@ -193,44 +197,46 @@ std::string BitBoardEnv::render() const {
     return out.str();
 }
 
-BitBoardEnv::Masks BitBoardEnv::precompute_masks(int n) {
+BitBoardEnv::Masks BitBoardEnv::precompute_masks(int rows, int cols) {
     Masks masks;
-    masks.box_h_masks.resize(n * n, 0ULL);
-    masks.box_v_masks.resize(n * n, 0ULL);
-    masks.h_edge_adj_boxes.resize((n + 1) * n);
-    masks.v_edge_adj_boxes.resize(n * (n + 1));
+    masks.box_h_masks.resize(rows * cols, 0ULL);
+    masks.box_v_masks.resize(rows * cols, 0ULL);
+    masks.h_edge_adj_boxes.resize((rows + 1) * cols);
+    masks.v_edge_adj_boxes.resize(rows * (cols + 1));
 
-    for (int r = 0; r < n; r++) {
-        for (int c = 0; c < n; c++) {
-            const int h_top = r * n + c;
-            const int h_bot = (r + 1) * n + c;
-            const int v_left = r * (n + 1) + c;
-            const int v_right = r * (n + 1) + (c + 1);
-            masks.box_h_masks[r * n + c] = (1ULL << h_top) | (1ULL << h_bot);
-            masks.box_v_masks[r * n + c] = (1ULL << v_left) | (1ULL << v_right);
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            const int h_top = r * cols + c;
+            const int h_bot = (r + 1) * cols + c;
+            const int v_left = r * (cols + 1) + c;
+            const int v_right = r * (cols + 1) + (c + 1);
+            masks.box_h_masks[r * cols + c] = (1ULL << h_top) | (1ULL << h_bot);
+            masks.box_v_masks[r * cols + c] = (1ULL << v_left) | (1ULL << v_right);
         }
     }
 
-    for (int r = 0; r < n + 1; r++) {
-        for (int c = 0; c < n; c++) {
+    for (int r = 0; r < rows + 1; r++) {
+        for (int c = 0; c < cols; c++) {
             std::vector<std::pair<int, int>> adj;
             if (r > 0) adj.push_back({r - 1, c});
-            if (r < n) adj.push_back({r, c});
-            masks.h_edge_adj_boxes[r * n + c] = std::move(adj);
+            if (r < rows) adj.push_back({r, c});
+            masks.h_edge_adj_boxes[r * cols + c] = std::move(adj);
         }
     }
 
-    for (int r = 0; r < n; r++) {
-        for (int c = 0; c < n + 1; c++) {
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols + 1; c++) {
             std::vector<std::pair<int, int>> adj;
             if (c > 0) adj.push_back({r, c - 1});
-            if (c < n) adj.push_back({r, c});
-            masks.v_edge_adj_boxes[r * (n + 1) + c] = std::move(adj);
+            if (c < cols) adj.push_back({r, c});
+            masks.v_edge_adj_boxes[r * (cols + 1) + c] = std::move(adj);
         }
     }
 
-    masks.all_h = (n == 0) ? 0ULL : ((1ULL << ((n + 1) * n)) - 1ULL);
-    masks.all_v = (n == 0) ? 0ULL : ((1ULL << (n * (n + 1))) - 1ULL);
+    const int nh = (rows + 1) * cols;
+    const int nv = rows * (cols + 1);
+    masks.all_h = (nh == 0) ? 0ULL : ((1ULL << nh) - 1ULL);
+    masks.all_v = (nv == 0) ? 0ULL : ((1ULL << nv) - 1ULL);
     return masks;
 }
 

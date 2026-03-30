@@ -10,17 +10,22 @@
 
 namespace azb {
 
+/// Result from a policy-value network evaluation.
 struct PolicyValue {
     std::vector<float> policy;  // size = action_size
     float value = 0.0f;         // in [-1, 1]
 };
 
+/// Abstract interface for policy-value function.
+/// Implementations can wrap a LibTorch model, ONNX, or any other backend.
 class PolicyValueFn {
 public:
     virtual ~PolicyValueFn() = default;
     virtual PolicyValue operator()(const StateSnapshot& state) = 0;
 };
 
+/// MCTS-based AlphaZero agent for Dots-and-Boxes.
+/// Supports rectangular boards (rows x cols).
 class AlphaZeroBitAgent {
 public:
     AlphaZeroBitAgent(const BitBoardEnv& env,
@@ -72,7 +77,8 @@ private:
     Action best_action(const Node& root, float temperature);
     uint32_t action_to_index(const Action& action) const;
 
-    int n_;
+    int rows_;
+    int cols_;
     int n_h_edges_;
     int n_v_edges_;
     int action_size_;

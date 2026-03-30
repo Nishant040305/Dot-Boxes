@@ -15,9 +15,10 @@ AlphaZeroBitAgent::AlphaZeroBitAgent(const BitBoardEnv& env,
                                      float dirichlet_epsilon,
                                      float fpu_reduction,
                                      bool add_noise)
-    : n_(env.N()),
-      n_h_edges_((n_ + 1) * n_),
-      n_v_edges_(n_ * (n_ + 1)),
+    : rows_(env.rows()),
+      cols_(env.cols()),
+      n_h_edges_((rows_ + 1) * cols_),
+      n_v_edges_(rows_ * (cols_ + 1)),
       action_size_(n_h_edges_ + n_v_edges_),
       n_simulations_(n_simulations),
       c_puct_(c_puct),
@@ -31,29 +32,29 @@ AlphaZeroBitAgent::AlphaZeroBitAgent(const BitBoardEnv& env,
 }
 
 void AlphaZeroBitAgent::precompute_edge_bits() {
-    box_h_bits_.resize(n_ * n_);
-    box_v_bits_.resize(n_ * n_);
-    for (int r = 0; r < n_; r++) {
-        for (int c = 0; c < n_; c++) {
-            const int h_top = r * n_ + c;
-            const int h_bot = (r + 1) * n_ + c;
-            const int v_left = r * (n_ + 1) + c;
-            const int v_right = r * (n_ + 1) + (c + 1);
-            box_h_bits_[r * n_ + c] = {h_top, h_bot};
-            box_v_bits_[r * n_ + c] = {v_left, v_right};
+    box_h_bits_.resize(rows_ * cols_);
+    box_v_bits_.resize(rows_ * cols_);
+    for (int r = 0; r < rows_; r++) {
+        for (int c = 0; c < cols_; c++) {
+            const int h_top = r * cols_ + c;
+            const int h_bot = (r + 1) * cols_ + c;
+            const int v_left = r * (cols_ + 1) + c;
+            const int v_right = r * (cols_ + 1) + (c + 1);
+            box_h_bits_[r * cols_ + c] = {h_top, h_bot};
+            box_v_bits_[r * cols_ + c] = {v_left, v_right};
         }
     }
 }
 
 uint32_t AlphaZeroBitAgent::action_to_index(const Action& action) const {
     if (action.edge_type == 0) {
-        return static_cast<uint32_t>(action.r * n_ + action.c);
+        return static_cast<uint32_t>(action.r * cols_ + action.c);
     }
-    return static_cast<uint32_t>(n_h_edges_ + action.r * (n_ + 1) + action.c);
+    return static_cast<uint32_t>(n_h_edges_ + action.r * (cols_ + 1) + action.c);
 }
 
 std::vector<float> AlphaZeroBitAgent::build_features(const NodeState& state) const {
-    const int input_size = n_h_edges_ + n_v_edges_ + n_ * n_ + 1;
+    const int input_size = n_h_edges_ + n_v_edges_ + rows_ * cols_ + 1;
     std::vector<float> features(static_cast<size_t>(input_size), 0.0f);
 
     for (int i = 0; i < n_h_edges_; i++) {
@@ -63,7 +64,7 @@ std::vector<float> AlphaZeroBitAgent::build_features(const NodeState& state) con
         const int idx = n_h_edges_ + i;
         if (state.v_edges & (1ULL << i)) features[static_cast<size_t>(idx)] = 1.0f;
     }
-    for (int i = 0; i < n_ * n_; i++) {
+    for (int i = 0; i < rows_ * cols_; i++) {
         const uint64_t bit = 1ULL << i;
         if (state.boxes_p1 & bit) {
             features[static_cast<size_t>(n_h_edges_ + n_v_edges_ + i)] =
@@ -79,20 +80,20 @@ std::vector<float> AlphaZeroBitAgent::build_features(const NodeState& state) con
 
 std::vector<Action> AlphaZeroBitAgent::legal_actions(const NodeState& state) const {
     std::vector<Action> actions;
-    const uint64_t all_h = (n_ == 0) ? 0ULL : ((1ULL << n_h_edges_) - 1ULL);
-    const uint64_t all_v = (n_ == 0) ? 0ULL : ((1ULL << n_v_edges_) - 1ULL);
+    const uint64_t all_h = (n_h_edges_ == 0) ? 0ULL : ((1ULL << n_h_edges_) - 1ULL);
+    const uint64_t all_v = (n_v_edges_ == 0) ? 0ULL : ((1ULL << n_v_edges_) - 1ULL);
 
     uint64_t free_h = all_h & ~state.h_edges;
     uint64_t free_v = all_v & ~state.v_edges;
 
     while (free_h) {
         const int idx = __builtin_ctzll(free_h);
-        actions.push_back({0, idx / n_, idx % n_});
+        actions.push_back({0, idx / cols_, idx % cols_});
         free_h &= (free_h - 1);
     }
     while (free_v) {
         const int idx = __builtin_ctzll(free_v);
-        actions.push_back({1, idx / (n_ + 1), idx % (n_ + 1)});
+        actions.push_back({1, idx / (cols_ + 1), idx % (cols_ + 1)});
         free_v &= (free_v - 1);
     }
     return actions;
@@ -107,13 +108,13 @@ AlphaZeroBitAgent::NodeState AlphaZeroBitAgent::apply_action(const NodeState& st
 
     std::vector<std::pair<int, int>> adj_boxes;
     if (edge_type == 0) {
-        next.h_edges |= (1ULL << (r * n_ + c));
+        next.h_edges |= (1ULL << (r * cols_ + c));
         if (r > 0) adj_boxes.push_back({r - 1, c});
-        if (r < n_) adj_boxes.push_back({r, c});
+        if (r < rows_) adj_boxes.push_back({r, c});
     } else {
-        next.v_edges |= (1ULL << (r * (n_ + 1) + c));
+        next.v_edges |= (1ULL << (r * (cols_ + 1) + c));
         if (c > 0) adj_boxes.push_back({r, c - 1});
-        if (c < n_) adj_boxes.push_back({r, c});
+        if (c < cols_) adj_boxes.push_back({r, c});
     }
 
     bool box_made = false;
@@ -121,12 +122,12 @@ AlphaZeroBitAgent::NodeState AlphaZeroBitAgent::apply_action(const NodeState& st
         const int box_r = box.first;
         const int box_c = box.second;
         const uint64_t h_mask =
-            (1ULL << box_h_bits_[box_r * n_ + box_c].first) |
-            (1ULL << box_h_bits_[box_r * n_ + box_c].second);
+            (1ULL << box_h_bits_[box_r * cols_ + box_c].first) |
+            (1ULL << box_h_bits_[box_r * cols_ + box_c].second);
         const uint64_t v_mask =
-            (1ULL << box_v_bits_[box_r * n_ + box_c].first) |
-            (1ULL << box_v_bits_[box_r * n_ + box_c].second);
-        const uint64_t box_bit = 1ULL << (box_r * n_ + box_c);
+            (1ULL << box_v_bits_[box_r * cols_ + box_c].first) |
+            (1ULL << box_v_bits_[box_r * cols_ + box_c].second);
+        const uint64_t box_bit = 1ULL << (box_r * cols_ + box_c);
         if ((next.h_edges & h_mask) == h_mask && (next.v_edges & v_mask) == v_mask) {
             if ((next.boxes_p1 & box_bit) == 0 && (next.boxes_p2 & box_bit) == 0) {
                 if (next.current_player == 1) {
@@ -144,7 +145,7 @@ AlphaZeroBitAgent::NodeState AlphaZeroBitAgent::apply_action(const NodeState& st
     if (!box_made) {
         next.current_player = 3 - next.current_player;
     }
-    next.done = (next.score_p1 + next.score_p2) == (n_ * n_);
+    next.done = (next.score_p1 + next.score_p2) == (rows_ * cols_);
     return next;
 }
 
@@ -248,13 +249,13 @@ std::pair<Action, AlphaZeroBitAgent::Node*> AlphaZeroBitAgent::select_child(Node
     Action action;
     if (best_idx < static_cast<uint32_t>(n_h_edges_)) {
         action.edge_type = 0;
-        action.r = static_cast<int>(best_idx / n_);
-        action.c = static_cast<int>(best_idx % n_);
+        action.r = static_cast<int>(best_idx / cols_);
+        action.c = static_cast<int>(best_idx % cols_);
     } else {
         const uint32_t rel = best_idx - static_cast<uint32_t>(n_h_edges_);
         action.edge_type = 1;
-        action.r = static_cast<int>(rel / (n_ + 1));
-        action.c = static_cast<int>(rel % (n_ + 1));
+        action.r = static_cast<int>(rel / (cols_ + 1));
+        action.c = static_cast<int>(rel % (cols_ + 1));
     }
 
     return {action, best_child};
@@ -284,17 +285,20 @@ Action AlphaZeroBitAgent::best_action(const Node& root, float temperature) {
 
     if (actions.empty()) return Action{-1, -1, -1};
 
+    auto idx_to_action = [&](uint32_t idx) -> Action {
+        if (idx < static_cast<uint32_t>(n_h_edges_)) {
+            return {0, static_cast<int>(idx / cols_), static_cast<int>(idx % cols_)};
+        }
+        const uint32_t rel = idx - static_cast<uint32_t>(n_h_edges_);
+        return {1, static_cast<int>(rel / (cols_ + 1)), static_cast<int>(rel % (cols_ + 1))};
+    };
+
     if (temperature <= 1e-3f) {
         size_t best = 0;
         for (size_t i = 1; i < weights.size(); i++) {
             if (weights[i] > weights[best]) best = i;
         }
-        const uint32_t idx = actions[best];
-        if (idx < static_cast<uint32_t>(n_h_edges_)) {
-            return {0, static_cast<int>(idx / n_), static_cast<int>(idx % n_)};
-        }
-        const uint32_t rel = idx - static_cast<uint32_t>(n_h_edges_);
-        return {1, static_cast<int>(rel / (n_ + 1)), static_cast<int>(rel % (n_ + 1))};
+        return idx_to_action(actions[best]);
     }
 
     std::vector<float> logits(weights.size(), 0.0f);
@@ -315,21 +319,10 @@ Action AlphaZeroBitAgent::best_action(const Node& root, float temperature) {
     for (size_t i = 0; i < logits.size(); i++) {
         acc += logits[i];
         if (acc >= pick) {
-            const uint32_t idx = actions[i];
-            if (idx < static_cast<uint32_t>(n_h_edges_)) {
-                return {0, static_cast<int>(idx / n_), static_cast<int>(idx % n_)};
-            }
-            const uint32_t rel = idx - static_cast<uint32_t>(n_h_edges_);
-            return {1, static_cast<int>(rel / (n_ + 1)), static_cast<int>(rel % (n_ + 1))};
+            return idx_to_action(actions[i]);
         }
     }
-
-    const uint32_t idx = actions.back();
-    if (idx < static_cast<uint32_t>(n_h_edges_)) {
-        return {0, static_cast<int>(idx / n_), static_cast<int>(idx % n_)};
-    }
-    const uint32_t rel = idx - static_cast<uint32_t>(n_h_edges_);
-    return {1, static_cast<int>(rel / (n_ + 1)), static_cast<int>(rel % (n_ + 1))};
+    return idx_to_action(actions.back());
 }
 
 Action AlphaZeroBitAgent::act(const BitBoardEnv& env, bool return_probs, float temperature) {
@@ -357,20 +350,7 @@ Action AlphaZeroBitAgent::act(const BitBoardEnv& env, bool return_probs, float t
 
     Action chosen = best_action(root, temperature);
 
-    if (!return_probs) {
-        // Cleanup tree
-        std::vector<Node*> stack;
-        stack.push_back(&root);
-        while (!stack.empty()) {
-            Node* cur = stack.back();
-            stack.pop_back();
-            for (auto& kv : cur->children) stack.push_back(kv.second);
-            if (cur != &root) delete cur;
-        }
-        return chosen;
-    }
-
-    // Cleanup tree even when returning probs (counts already saved)
+    // Cleanup tree
     std::vector<Node*> stack;
     stack.push_back(&root);
     while (!stack.empty()) {
