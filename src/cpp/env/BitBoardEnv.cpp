@@ -20,19 +20,24 @@ void BitBoardEnv::init_common() {
     total_edges_ = n_h_edges_ + n_v_edges_;
     total_boxes_ = rows_ * cols_;
 
+    h_edges_.resize(n_h_edges_);
+    v_edges_.resize(n_v_edges_);
+    boxes_p1_.resize(total_boxes_);
+    boxes_p2_.resize(total_boxes_);
+
     const uint64_t key = make_cache_key(rows_, cols_);
     if (masks_cache_.find(key) == masks_cache_.end()) {
-        masks_cache_[key] = precompute_masks(rows_, cols_);
+        masks_cache_[key] = precompute_masks(rows_, cols_, n_h_edges_, n_v_edges_, total_boxes_);
     }
     masks_ = &masks_cache_.at(key);
     reset();
 }
 
 void BitBoardEnv::reset() {
-    h_edges_ = 0ULL;
-    v_edges_ = 0ULL;
-    boxes_p1_ = 0ULL;
-    boxes_p2_ = 0ULL;
+    h_edges_.clear();
+    v_edges_.clear();
+    boxes_p1_.clear();
+    boxes_p2_.clear();
     current_player_ = 1;
     done_ = false;
     score_[0] = 0;
@@ -51,18 +56,15 @@ StepResult BitBoardEnv::step(const Action& action) {
     const int edge_type = action.edge_type;
     const int r = action.r;
     const int c = action.c;
-    const uint64_t bit = (edge_type == 0)
-        ? (1ULL << static_cast<uint64_t>(r * cols_ + c))
-        : (1ULL << static_cast<uint64_t>(r * (cols_ + 1) + c));
 
     const std::vector<std::pair<int, int>>& adj_boxes =
         (edge_type == 0) ? masks_->h_edge_adj_boxes[r * cols_ + c]
                          : masks_->v_edge_adj_boxes[r * (cols_ + 1) + c];
 
     if (edge_type == 0) {
-        h_edges_ |= bit;
+        h_edges_.set(r * cols_ + c);
     } else {
-        v_edges_ |= bit;
+        v_edges_.set(r * (cols_ + 1) + c);
     }
 
     bool box_made = false;
@@ -71,16 +73,16 @@ StepResult BitBoardEnv::step(const Action& action) {
     for (const auto& box : adj_boxes) {
         const int box_r = box.first;
         const int box_c = box.second;
-        const uint64_t h_mask = masks_->box_h_masks[box_r * cols_ + box_c];
-        const uint64_t v_mask = masks_->box_v_masks[box_r * cols_ + box_c];
-        const uint64_t box_bit = 1ULL << static_cast<uint64_t>(box_r * cols_ + box_c);
+        const auto& h_mask = masks_->box_h_masks[box_r * cols_ + box_c];
+        const auto& v_mask = masks_->box_v_masks[box_r * cols_ + box_c];
+        const int box_bit = box_r * cols_ + box_c;
 
-        if ((h_edges_ & h_mask) == h_mask && (v_edges_ & v_mask) == v_mask) {
-            if ((boxes_p1_ & box_bit) == 0 && (boxes_p2_ & box_bit) == 0) {
+        if (h_edges_.contains_all(h_mask) && v_edges_.contains_all(v_mask)) {
+            if (!boxes_p1_.test(box_bit) && !boxes_p2_.test(box_bit)) {
                 if (current_player_ == 1) {
-                    boxes_p1_ |= box_bit;
+                    boxes_p1_.set(box_bit);
                 } else {
-                    boxes_p2_ |= box_bit;
+                    boxes_p2_.set(box_bit);
                 }
                 score_[current_player_ - 1] += 1;
                 reward += 1;
@@ -104,36 +106,29 @@ StepResult BitBoardEnv::step(const Action& action) {
 
 std::vector<Action> BitBoardEnv::get_available_actions() const {
     std::vector<Action> actions;
-    const uint64_t free_h = masks_->all_h & ~h_edges_;
-    const uint64_t free_v = masks_->all_v & ~v_edges_;
+    azb::FastBitset free_h = masks_->all_h.bit_and(h_edges_.bit_not());
+    azb::FastBitset free_v = masks_->all_v.bit_and(v_edges_.bit_not());
 
-    uint64_t tmp = free_h;
-    while (tmp) {
-        const uint64_t bit = tmp & (~tmp + 1);
-        const int idx = static_cast<int>(__builtin_ctzll(tmp));
-        const int r = idx / cols_;
-        const int c = idx % cols_;
-        actions.push_back({0, r, c});
-        tmp ^= bit;
-    }
+    free_h.for_each_set_bit([&](size_t idx) {
+        actions.push_back({0, static_cast<int>(idx) / cols_, static_cast<int>(idx) % cols_});
+    });
 
-    tmp = free_v;
-    while (tmp) {
-        const uint64_t bit = tmp & (~tmp + 1);
-        const int idx = static_cast<int>(__builtin_ctzll(tmp));
-        const int r = idx / (cols_ + 1);
-        const int c = idx % (cols_ + 1);
-        actions.push_back({1, r, c});
-        tmp ^= bit;
-    }
+    free_v.for_each_set_bit([&](size_t idx) {
+        actions.push_back({1, static_cast<int>(idx) / (cols_ + 1), static_cast<int>(idx) % (cols_ + 1)});
+    });
 
     return actions;
 }
 
-uint64_t BitBoardEnv::get_legal_actions_mask() const {
-    const uint64_t free_h = masks_->all_h & ~h_edges_;
-    const uint64_t free_v = masks_->all_v & ~v_edges_;
-    return free_h | (free_v << n_h_edges_);
+azb::FastBitset BitBoardEnv::get_legal_actions_mask() const {
+    azb::FastBitset free_h = masks_->all_h.bit_and(h_edges_.bit_not());
+    azb::FastBitset free_v = masks_->all_v.bit_and(v_edges_.bit_not());
+    azb::FastBitset combined(action_size());
+    
+    free_h.for_each_set_bit([&](size_t idx) { combined.set(idx); });
+    free_v.for_each_set_bit([&](size_t idx) { combined.set(n_h_edges_ + idx); });
+    
+    return combined;
 }
 
 BitBoardEnv BitBoardEnv::clone() const {
@@ -172,7 +167,7 @@ std::string BitBoardEnv::render() const {
         for (int c = 0; c < cols_; c++) {
             out << ".";
             const int h_idx = r * cols_ + c;
-            const bool has = (h_edges_ >> h_idx) & 1ULL;
+            const bool has = h_edges_.test(h_idx);
             out << (has ? "---" : "   ");
         }
         out << ".\n";
@@ -181,13 +176,13 @@ std::string BitBoardEnv::render() const {
 
         for (int c = 0; c < cols_ + 1; c++) {
             const int v_idx = r * (cols_ + 1) + c;
-            const bool has = (v_edges_ >> v_idx) & 1ULL;
+            const bool has = v_edges_.test(v_idx);
             out << (has ? "|" : " ");
             if (c < cols_) {
                 const int box_idx = r * cols_ + c;
                 char owner = ' ';
-                if ((boxes_p1_ >> box_idx) & 1ULL) owner = '1';
-                if ((boxes_p2_ >> box_idx) & 1ULL) owner = '2';
+                if (boxes_p1_.test(box_idx)) owner = '1';
+                if (boxes_p2_.test(box_idx)) owner = '2';
                 out << " " << owner << " ";
             }
         }
@@ -197,12 +192,12 @@ std::string BitBoardEnv::render() const {
     return out.str();
 }
 
-BitBoardEnv::Masks BitBoardEnv::precompute_masks(int rows, int cols) {
+BitBoardEnv::Masks BitBoardEnv::precompute_masks(int rows, int cols, int n_h, int n_v, int t_boxes) {
     Masks masks;
-    masks.box_h_masks.resize(rows * cols, 0ULL);
-    masks.box_v_masks.resize(rows * cols, 0ULL);
-    masks.h_edge_adj_boxes.resize((rows + 1) * cols);
-    masks.v_edge_adj_boxes.resize(rows * (cols + 1));
+    masks.box_h_masks.assign(t_boxes, azb::FastBitset(n_h));
+    masks.box_v_masks.assign(t_boxes, azb::FastBitset(n_v));
+    masks.h_edge_adj_boxes.resize(n_h);
+    masks.v_edge_adj_boxes.resize(n_v);
 
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
@@ -210,8 +205,10 @@ BitBoardEnv::Masks BitBoardEnv::precompute_masks(int rows, int cols) {
             const int h_bot = (r + 1) * cols + c;
             const int v_left = r * (cols + 1) + c;
             const int v_right = r * (cols + 1) + (c + 1);
-            masks.box_h_masks[r * cols + c] = (1ULL << h_top) | (1ULL << h_bot);
-            masks.box_v_masks[r * cols + c] = (1ULL << v_left) | (1ULL << v_right);
+            masks.box_h_masks[r * cols + c].set(h_top);
+            masks.box_h_masks[r * cols + c].set(h_bot);
+            masks.box_v_masks[r * cols + c].set(v_left);
+            masks.box_v_masks[r * cols + c].set(v_right);
         }
     }
 
@@ -233,10 +230,10 @@ BitBoardEnv::Masks BitBoardEnv::precompute_masks(int rows, int cols) {
         }
     }
 
-    const int nh = (rows + 1) * cols;
-    const int nv = rows * (cols + 1);
-    masks.all_h = (nh == 0) ? 0ULL : ((1ULL << nh) - 1ULL);
-    masks.all_v = (nv == 0) ? 0ULL : ((1ULL << nv) - 1ULL);
+    masks.all_h.resize(n_h);
+    masks.all_h.set_all();
+    masks.all_v.resize(n_v);
+    masks.all_v.set_all();
     return masks;
 }
 

@@ -127,65 +127,53 @@ struct AlphaZeroBitNetImpl : torch::nn::Module {
     /// Convert a single StateSnapshot to a feature tensor.
     torch::Tensor preprocess(const StateSnapshot& state) {
         auto features = torch::zeros({input_size}, torch::kFloat32);
-        auto acc = features.accessor<float, 1>();
+        float* ptr = features.data_ptr<float>();
 
         // Horizontal edges
-        for (int i = 0; i < n_h_edges; i++) {
-            if (state.h_edges & (1ULL << i)) acc[i] = 1.0f;
-        }
+        state.h_edges.for_each_set_bit([&](size_t i) { ptr[i] = 1.0f; });
         // Vertical edges
-        for (int i = 0; i < n_v_edges; i++) {
-            if (state.v_edges & (1ULL << i)) acc[n_h_edges + i] = 1.0f;
-        }
+        state.v_edges.for_each_set_bit([&](size_t i) { ptr[n_h_edges + i] = 1.0f; });
+        
         // Box ownership
         const int box_offset = n_h_edges + n_v_edges;
-        for (int i = 0; i < rows * cols; i++) {
-            const uint64_t bit = 1ULL << i;
-            if (state.boxes_p1 & bit) {
-                acc[box_offset + i] = (state.current_player == 1) ? 1.0f : -1.0f;
-            } else if (state.boxes_p2 & bit) {
-                acc[box_offset + i] = (state.current_player == 2) ? 1.0f : -1.0f;
-            }
-        }
+        state.boxes_p1.for_each_set_bit([&](size_t i) {
+            ptr[box_offset + i] = (state.current_player == 1) ? 1.0f : -1.0f;
+        });
+        state.boxes_p2.for_each_set_bit([&](size_t i) {
+            ptr[box_offset + i] = (state.current_player == 2) ? 1.0f : -1.0f;
+        });
+
         // Player flag
-        acc[input_size - 1] = (state.current_player == 1) ? 1.0f : -1.0f;
+        ptr[input_size - 1] = (state.current_player == 1) ? 1.0f : -1.0f;
 
         return features;
     }
 
     /// Batch preprocess from raw bitmask arrays.
     torch::Tensor preprocess_batch(
-            const std::vector<uint64_t>& h_edges_list,
-            const std::vector<uint64_t>& v_edges_list,
-            const std::vector<uint64_t>& boxes_p1_list,
-            const std::vector<uint64_t>& boxes_p2_list,
+            const std::vector<azb::FastBitset>& h_edges_list,
+            const std::vector<azb::FastBitset>& v_edges_list,
+            const std::vector<azb::FastBitset>& boxes_p1_list,
+            const std::vector<azb::FastBitset>& boxes_p2_list,
             const std::vector<int>& players_list) {
         const int batch = static_cast<int>(h_edges_list.size());
         auto features = torch::zeros({batch, input_size}, torch::kFloat32);
         auto acc = features.accessor<float, 2>();
 
         for (int b = 0; b < batch; b++) {
-            const uint64_t h = h_edges_list[b];
-            const uint64_t v = v_edges_list[b];
-            const uint64_t p1 = boxes_p1_list[b];
-            const uint64_t p2 = boxes_p2_list[b];
             const int player = players_list[b];
-
-            for (int i = 0; i < n_h_edges; i++) {
-                if (h & (1ULL << i)) acc[b][i] = 1.0f;
-            }
-            for (int i = 0; i < n_v_edges; i++) {
-                if (v & (1ULL << i)) acc[b][n_h_edges + i] = 1.0f;
-            }
+            
+            h_edges_list[b].for_each_set_bit([&](size_t i) { acc[b][i] = 1.0f; });
+            v_edges_list[b].for_each_set_bit([&](size_t i) { acc[b][n_h_edges + i] = 1.0f; });
+            
             const int box_off = n_h_edges + n_v_edges;
-            for (int i = 0; i < rows * cols; i++) {
-                const uint64_t bit = 1ULL << i;
-                if (p1 & bit) {
-                    acc[b][box_off + i] = (player == 1) ? 1.0f : -1.0f;
-                } else if (p2 & bit) {
-                    acc[b][box_off + i] = (player == 2) ? 1.0f : -1.0f;
-                }
-            }
+            boxes_p1_list[b].for_each_set_bit([&](size_t i) {
+                acc[b][box_off + i] = (player == 1) ? 1.0f : -1.0f;
+            });
+            boxes_p2_list[b].for_each_set_bit([&](size_t i) {
+                acc[b][box_off + i] = (player == 2) ? 1.0f : -1.0f;
+            });
+            
             acc[b][input_size - 1] = (player == 1) ? 1.0f : -1.0f;
         }
         return features;

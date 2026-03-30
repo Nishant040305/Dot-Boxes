@@ -162,10 +162,16 @@ int main(int argc, char* argv[]) {
 
         if (cmd == "act") {
             // Restore state from Python's authoritative representation
-            uint64_t h_edges = static_cast<uint64_t>(json.get_int("h_edges"));
-            uint64_t v_edges = static_cast<uint64_t>(json.get_int("v_edges"));
-            uint64_t boxes_p1 = static_cast<uint64_t>(json.get_int("boxes_p1"));
-            uint64_t boxes_p2 = static_cast<uint64_t>(json.get_int("boxes_p2"));
+            azb::FastBitset h_edges((rows + 1) * cols);
+            azb::FastBitset v_edges(rows * (cols + 1));
+            azb::FastBitset boxes_p1(rows * cols);
+            azb::FastBitset boxes_p2(rows * cols);
+
+            if (h_edges.num_words() > 0) h_edges.raw()[0] = static_cast<uint64_t>(json.get_int("h_edges"));
+            if (v_edges.num_words() > 0) v_edges.raw()[0] = static_cast<uint64_t>(json.get_int("v_edges"));
+            if (boxes_p1.num_words() > 0) boxes_p1.raw()[0] = static_cast<uint64_t>(json.get_int("boxes_p1"));
+            if (boxes_p2.num_words() > 0) boxes_p2.raw()[0] = static_cast<uint64_t>(json.get_int("boxes_p2"));
+
             int current_player = static_cast<int>(json.get_int("current_player"));
             int score_p1 = static_cast<int>(json.get_int("score_p1"));
             int score_p2 = static_cast<int>(json.get_int("score_p2"));

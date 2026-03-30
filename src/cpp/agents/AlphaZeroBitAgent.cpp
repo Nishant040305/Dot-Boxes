@@ -57,45 +57,35 @@ std::vector<float> AlphaZeroBitAgent::build_features(const NodeState& state) con
     const int input_size = n_h_edges_ + n_v_edges_ + rows_ * cols_ + 1;
     std::vector<float> features(static_cast<size_t>(input_size), 0.0f);
 
-    for (int i = 0; i < n_h_edges_; i++) {
-        if (state.h_edges & (1ULL << i)) features[static_cast<size_t>(i)] = 1.0f;
-    }
-    for (int i = 0; i < n_v_edges_; i++) {
-        const int idx = n_h_edges_ + i;
-        if (state.v_edges & (1ULL << i)) features[static_cast<size_t>(idx)] = 1.0f;
-    }
-    for (int i = 0; i < rows_ * cols_; i++) {
-        const uint64_t bit = 1ULL << i;
-        if (state.boxes_p1 & bit) {
-            features[static_cast<size_t>(n_h_edges_ + n_v_edges_ + i)] =
-                (state.current_player == 1) ? 1.0f : -1.0f;
-        } else if (state.boxes_p2 & bit) {
-            features[static_cast<size_t>(n_h_edges_ + n_v_edges_ + i)] =
-                (state.current_player == 2) ? 1.0f : -1.0f;
-        }
-    }
+    state.h_edges.for_each_set_bit([&](size_t i) { features[i] = 1.0f; });
+    state.v_edges.for_each_set_bit([&](size_t i) { features[n_h_edges_ + i] = 1.0f; });
+
+    const int box_offset = n_h_edges_ + n_v_edges_;
+    state.boxes_p1.for_each_set_bit([&](size_t i) {
+        features[box_offset + i] = (state.current_player == 1) ? 1.0f : -1.0f;
+    });
+    state.boxes_p2.for_each_set_bit([&](size_t i) {
+        features[box_offset + i] = (state.current_player == 2) ? 1.0f : -1.0f;
+    });
+
     features.back() = (state.current_player == 1) ? 1.0f : -1.0f;
     return features;
 }
 
 std::vector<Action> AlphaZeroBitAgent::legal_actions(const NodeState& state) const {
     std::vector<Action> actions;
-    const uint64_t all_h = (n_h_edges_ == 0) ? 0ULL : ((1ULL << n_h_edges_) - 1ULL);
-    const uint64_t all_v = (n_v_edges_ == 0) ? 0ULL : ((1ULL << n_v_edges_) - 1ULL);
+    azb::FastBitset all_h(n_h_edges_); all_h.set_all();
+    azb::FastBitset all_v(n_v_edges_); all_v.set_all();
 
-    uint64_t free_h = all_h & ~state.h_edges;
-    uint64_t free_v = all_v & ~state.v_edges;
+    azb::FastBitset free_h = all_h.bit_and(state.h_edges.bit_not());
+    azb::FastBitset free_v = all_v.bit_and(state.v_edges.bit_not());
 
-    while (free_h) {
-        const int idx = __builtin_ctzll(free_h);
-        actions.push_back({0, idx / cols_, idx % cols_});
-        free_h &= (free_h - 1);
-    }
-    while (free_v) {
-        const int idx = __builtin_ctzll(free_v);
-        actions.push_back({1, idx / (cols_ + 1), idx % (cols_ + 1)});
-        free_v &= (free_v - 1);
-    }
+    free_h.for_each_set_bit([&](size_t idx) {
+        actions.push_back({0, static_cast<int>(idx) / cols_, static_cast<int>(idx) % cols_});
+    });
+    free_v.for_each_set_bit([&](size_t idx) {
+        actions.push_back({1, static_cast<int>(idx) / (cols_ + 1), static_cast<int>(idx) % (cols_ + 1)});
+    });
     return actions;
 }
 
@@ -108,11 +98,11 @@ AlphaZeroBitAgent::NodeState AlphaZeroBitAgent::apply_action(const NodeState& st
 
     std::vector<std::pair<int, int>> adj_boxes;
     if (edge_type == 0) {
-        next.h_edges |= (1ULL << (r * cols_ + c));
+        next.h_edges.set(r * cols_ + c);
         if (r > 0) adj_boxes.push_back({r - 1, c});
         if (r < rows_) adj_boxes.push_back({r, c});
     } else {
-        next.v_edges |= (1ULL << (r * (cols_ + 1) + c));
+        next.v_edges.set(r * (cols_ + 1) + c);
         if (c > 0) adj_boxes.push_back({r, c - 1});
         if (c < cols_) adj_boxes.push_back({r, c});
     }
@@ -121,20 +111,23 @@ AlphaZeroBitAgent::NodeState AlphaZeroBitAgent::apply_action(const NodeState& st
     for (const auto& box : adj_boxes) {
         const int box_r = box.first;
         const int box_c = box.second;
-        const uint64_t h_mask =
-            (1ULL << box_h_bits_[box_r * cols_ + box_c].first) |
-            (1ULL << box_h_bits_[box_r * cols_ + box_c].second);
-        const uint64_t v_mask =
-            (1ULL << box_v_bits_[box_r * cols_ + box_c].first) |
-            (1ULL << box_v_bits_[box_r * cols_ + box_c].second);
-        const uint64_t box_bit = 1ULL << (box_r * cols_ + box_c);
-        if ((next.h_edges & h_mask) == h_mask && (next.v_edges & v_mask) == v_mask) {
-            if ((next.boxes_p1 & box_bit) == 0 && (next.boxes_p2 & box_bit) == 0) {
+        
+        azb::FastBitset h_mask(n_h_edges_);
+        h_mask.set(box_h_bits_[box_r * cols_ + box_c].first);
+        h_mask.set(box_h_bits_[box_r * cols_ + box_c].second);
+        
+        azb::FastBitset v_mask(n_v_edges_);
+        v_mask.set(box_v_bits_[box_r * cols_ + box_c].first);
+        v_mask.set(box_v_bits_[box_r * cols_ + box_c].second);
+        
+        const int box_bit = box_r * cols_ + box_c;
+        if (next.h_edges.contains_all(h_mask) && next.v_edges.contains_all(v_mask)) {
+            if (!next.boxes_p1.test(box_bit) && !next.boxes_p2.test(box_bit)) {
                 if (next.current_player == 1) {
-                    next.boxes_p1 |= box_bit;
+                    next.boxes_p1.set(box_bit);
                     next.score_p1 += 1;
                 } else {
-                    next.boxes_p2 |= box_bit;
+                    next.boxes_p2.set(box_bit);
                     next.score_p2 += 1;
                 }
                 box_made = true;

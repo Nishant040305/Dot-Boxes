@@ -44,10 +44,10 @@ public:
 
 private:
     struct NodeState {
-        uint64_t h_edges = 0;
-        uint64_t v_edges = 0;
-        uint64_t boxes_p1 = 0;
-        uint64_t boxes_p2 = 0;
+        azb::FastBitset h_edges;
+        azb::FastBitset v_edges;
+        azb::FastBitset boxes_p1;
+        azb::FastBitset boxes_p2;
         int current_player = 1;
         bool done = false;
         int score_p1 = 0;
