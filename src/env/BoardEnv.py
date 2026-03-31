@@ -1,11 +1,17 @@
 import copy
 
 class BaseBoardEnv:
-    def __init__(self, N):
-        self.N = N
-        self.horizontal_edges = [[False for _ in range(N)] for _ in range(N+1)]
-        self.vertical_edges = [[False for _ in range(N+1)] for _ in range(N)]
-        self.boxes = [[0 for _ in range(N)] for _ in range(N)]
+    def __init__(self, rows, cols=None):
+        # Backward compatible: BaseBoardEnv(3) gives a 3×3 board
+        if cols is None:
+            cols = rows
+        self.rows = rows
+        self.cols = cols
+        # Keep N for backward compatibility when rows == cols
+        self.N = rows if rows == cols else None
+        self.horizontal_edges = [[False for _ in range(cols)] for _ in range(rows+1)]
+        self.vertical_edges = [[False for _ in range(cols+1)] for _ in range(rows)]
+        self.boxes = [[0 for _ in range(cols)] for _ in range(rows)]
         self.current_player = 1
         self.done = False
         self.score = [0, 0]
@@ -13,9 +19,9 @@ class BaseBoardEnv:
         self.state_history = []
     
     def reset(self):
-        self.horizontal_edges = [[False for _ in range(self.N)] for _ in range(self.N+1)]
-        self.vertical_edges = [[False for _ in range(self.N+1)] for _ in range(self.N)]
-        self.boxes = [[0 for _ in range(self.N)] for _ in range(self.N)]
+        self.horizontal_edges = [[False for _ in range(self.cols)] for _ in range(self.rows+1)]
+        self.vertical_edges = [[False for _ in range(self.cols+1)] for _ in range(self.rows)]
+        self.boxes = [[0 for _ in range(self.cols)] for _ in range(self.rows)]
         self.current_player = 1
         self.done = False
         self.score = [0, 0]
@@ -57,7 +63,7 @@ class BaseBoardEnv:
                 self.score[self.current_player-1] += 1
                 reward +=1
                 box_made = True
-            if(action[1] < self.N and self.horizontal_edges[action[1]+1][action[2]] and self.vertical_edges[action[1]][action[2]] and self.vertical_edges[action[1]][action[2]+1]):
+            if(action[1] < self.rows and self.horizontal_edges[action[1]+1][action[2]] and self.vertical_edges[action[1]][action[2]] and self.vertical_edges[action[1]][action[2]+1]):
                 self.boxes[action[1]][action[2]] = self.current_player
                 self.score[self.current_player-1] += 1
                 reward +=1
@@ -68,14 +74,14 @@ class BaseBoardEnv:
                 self.score[self.current_player-1] += 1
                 reward +=1
                 box_made = True
-            if(action[2] < self.N and self.vertical_edges[action[1]][action[2]+1] and self.horizontal_edges[action[1]][action[2]] and self.horizontal_edges[action[1]+1][action[2]]):
+            if(action[2] < self.cols and self.vertical_edges[action[1]][action[2]+1] and self.horizontal_edges[action[1]][action[2]] and self.horizontal_edges[action[1]+1][action[2]]):
                 self.boxes[action[1]][action[2]] = self.current_player
                 self.score[self.current_player-1] += 1
                 reward +=1
                 box_made = True
         
         # check if game is done
-        if(self.score[0] + self.score[1] == self.N * self.N):
+        if(self.score[0] + self.score[1] == self.rows * self.cols):
             self.done = True
         
         # switch player
@@ -96,27 +102,27 @@ class BaseBoardEnv:
     def _get_available_actions(self):
         available_actions = []
         #horizontal edges
-        for i in range(self.N+1):
-            for j in range(self.N):
+        for i in range(self.rows+1):
+            for j in range(self.cols):
                 if(self.horizontal_edges[i][j] == False):
                     available_actions.append((0, i, j))
         #vertical edges
-        for i in range(self.N):
-            for j in range(self.N+1):
+        for i in range(self.rows):
+            for j in range(self.cols+1):
                 if(self.vertical_edges[i][j] == False):
                     available_actions.append((1, i, j))
         return available_actions
 
     def render(self):
         """Render the board to terminal in ASCII art."""
-        N = self.N
+        rows, cols = self.rows, self.cols
         print(f"\n  Player {self.current_player}'s turn | Score: P1={self.score[0]} P2={self.score[1]}")
-        print("  " + "-" * (4 * N + 1))
+        print("  " + "-" * (4 * cols + 1))
         
-        for i in range(N + 1):
+        for i in range(rows + 1):
             # Print horizontal edges row
             row = "  "
-            for j in range(N):
+            for j in range(cols):
                 row += "•"
                 if self.horizontal_edges[i][j]:
                     row += "———"
@@ -126,14 +132,14 @@ class BaseBoardEnv:
             print(row)
             
             # Print vertical edges and boxes (except after last row)
-            if i < N:
+            if i < rows:
                 row = "  "
-                for j in range(N + 1):
+                for j in range(cols + 1):
                     if self.vertical_edges[i][j]:
                         row += "│"
                     else:
                         row += " "
-                    if j < N:
+                    if j < cols:
                         if self.boxes[i][j] == 1:
                             row += " 1 "
                         elif self.boxes[i][j] == 2:
@@ -142,7 +148,7 @@ class BaseBoardEnv:
                             row += "   "
                 print(row)
         
-        print("  " + "-" * (4 * N + 1))
+        print("  " + "-" * (4 * cols + 1))
         if self.done:
             if self.score[0] > self.score[1]:
                 print("  Player 1 wins!")
@@ -154,7 +160,7 @@ class BaseBoardEnv:
     
     def clone(self):
         """Create a lightweight copy of the environment for MCTS."""
-        new_env = BaseBoardEnv(self.N)
+        new_env = BaseBoardEnv(self.rows, self.cols)
         new_env.horizontal_edges = [row[:] for row in self.horizontal_edges]
         new_env.vertical_edges = [row[:] for row in self.vertical_edges]
         new_env.boxes = [row[:] for row in self.boxes]

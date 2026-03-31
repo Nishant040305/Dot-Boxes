@@ -321,6 +321,14 @@ class BitBoardEnv:
     # --- Compatibility properties to look like BaseBoardEnv ---
     
     @property
+    def rows(self):
+        return self.N
+        
+    @property
+    def cols(self):
+        return self.N
+    
+    @property
     def horizontal_edges(self):
         """Reconstruct 2D array from bitmask (for compatibility)."""
         N = self.N

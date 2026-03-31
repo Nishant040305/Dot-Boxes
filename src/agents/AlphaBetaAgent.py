@@ -20,12 +20,14 @@ def _evaluate_action_ab(args):
     Must be a top-level function (not a method) so it can be pickled
     by multiprocessing.Pool.
     """
-    action, next_state, depth, player, env = args
+    action, next_state, depth, player, env_rows, env_cols, env = args
     # Create a temporary agent just for the recursive search
     agent = AlphaBetaAgent.__new__(AlphaBetaAgent)
     agent.env = env
     agent.reward = SimpleReward(env)
     agent.depth = depth
+    agent._rows = env_rows
+    agent._cols = env_cols
     agent.tt = {}                  # each worker gets its own fresh TT
     agent.tt_max_size = 500_000
     _, score = agent._alpha_beta(
@@ -98,7 +100,7 @@ class AlphaBetaAgent(MinMaxAgent):
         for action in legal_actions:
             next_state = self._get_next_state(state, action)
             work_items.append((
-                action, next_state, self.depth - 1, player, self.env,
+                action, next_state, self.depth - 1, player, self._rows, self._cols, self.env,
             ))
 
         num_workers = min(len(work_items), os.cpu_count() or 4)

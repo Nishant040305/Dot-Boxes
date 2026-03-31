@@ -7,17 +7,26 @@ class Reward:
 class SimpleReward(Reward):
     def __init__(self, env):
         super().__init__(env)
+
+    @property
+    def _rows(self):
+        return self.env.rows
+
+    @property
+    def _cols(self):
+        return self.env.cols
+
     def get_reward(self, action):
         reward = 0
         if(action[0] == 0):
             if(action[1] > 0 and self.env.horizontal_edges[action[1]-1][action[2]] and self.env.vertical_edges[action[1]-1][action[2]] and self.env.vertical_edges[action[1]-1][action[2]+1]):
                 reward +=1
-            if(action[1] < self.env.N and self.env.horizontal_edges[action[1]+1][action[2]] and self.env.vertical_edges[action[1]][action[2]] and self.env.vertical_edges[action[1]][action[2]+1]):
+            if(action[1] < self._rows and self.env.horizontal_edges[action[1]+1][action[2]] and self.env.vertical_edges[action[1]][action[2]] and self.env.vertical_edges[action[1]][action[2]+1]):
                 reward +=1
         else:
             if(action[2] > 0 and self.env.vertical_edges[action[1]][action[2]-1] and self.env.horizontal_edges[action[1]][action[2]-1] and self.env.horizontal_edges[action[1]+1][action[2]-1]):
                 reward +=1
-            if(action[2] < self.env.N and self.env.vertical_edges[action[1]][action[2]+1] and self.env.horizontal_edges[action[1]][action[2]] and self.env.horizontal_edges[action[1]+1][action[2]]):
+            if(action[2] < self._cols and self.env.vertical_edges[action[1]][action[2]+1] and self.env.horizontal_edges[action[1]][action[2]] and self.env.horizontal_edges[action[1]+1][action[2]]):
                 reward +=1
         return reward
     def get_reward_state(self,action,state):
@@ -25,12 +34,12 @@ class SimpleReward(Reward):
         if(action[0] == 0):
             if(action[1] > 0 and state.horizontal_edges[action[1]-1][action[2]] and state.vertical_edges[action[1]-1][action[2]] and state.vertical_edges[action[1]-1][action[2]+1]):
                 reward +=1
-            if(action[1] < self.env.N and state.horizontal_edges[action[1]+1][action[2]] and state.vertical_edges[action[1]][action[2]] and state.vertical_edges[action[1]][action[2]+1]):
+            if(action[1] < self._rows and state.horizontal_edges[action[1]+1][action[2]] and state.vertical_edges[action[1]][action[2]] and state.vertical_edges[action[1]][action[2]+1]):
                 reward +=1
         else:
             if(action[2] > 0 and state.vertical_edges[action[1]][action[2]-1] and state.horizontal_edges[action[1]][action[2]-1] and state.horizontal_edges[action[1]+1][action[2]-1]):
                 reward +=1
-            if(action[2] < self.env.N and state.vertical_edges[action[1]][action[2]+1] and state.horizontal_edges[action[1]][action[2]] and state.horizontal_edges[action[1]+1][action[2]]):
+            if(action[2] < self._cols and state.vertical_edges[action[1]][action[2]+1] and state.horizontal_edges[action[1]][action[2]] and state.horizontal_edges[action[1]+1][action[2]]):
                 reward +=1
         return reward
 
@@ -77,7 +86,7 @@ class SimpleReward(Reward):
                 if count == 2:
                     danger += 1
             # Box BELOW (i, j) — this edge is its top
-            if i < self.env.N:
+            if i < self._rows:
                 count = (int(state.horizontal_edges[i+1][j]) +
                          int(state.vertical_edges[i][j]) +
                          int(state.vertical_edges[i][j+1]))
@@ -93,7 +102,7 @@ class SimpleReward(Reward):
                 if count == 2:
                     danger += 1
             # Box to the RIGHT (i, j) — this edge is its left side
-            if j < self.env.N:
+            if j < self._cols:
                 count = (int(state.vertical_edges[i][j+1]) +
                          int(state.horizontal_edges[i][j]) +
                          int(state.horizontal_edges[i+1][j]))

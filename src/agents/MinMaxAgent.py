@@ -25,12 +25,14 @@ def _evaluate_action(args):
     Must be a top-level function (not a method) so it can be pickled
     by multiprocessing.Pool.
     """
-    action, next_state, depth, player, env_N, reward_env = args
+    action, next_state, depth, player, env_rows, env_cols, reward_env = args
     # Create a temporary agent just for the recursive search
     agent = MinMaxAgent.__new__(MinMaxAgent)
     agent.env = reward_env
     agent.reward = SimpleReward(reward_env)
     agent.depth = depth
+    agent._rows = env_rows
+    agent._cols = env_cols
     _, score = agent._minmax(depth, player, next_state)
     return action, score
 
@@ -41,10 +43,16 @@ class MinMaxAgent(Agent):
         self.reward = SimpleReward(env)
         self.depth = depth
         self.parallel = parallel
+        self._rows = env.rows
+        self._cols = env.cols
 
     @property
-    def N(self):
-        return self.env.N
+    def rows(self):
+        return self._rows
+
+    @property
+    def cols(self):
+        return self._cols
 
     def act(self):
         """Choose the best action from the current environment state using minimax."""
@@ -71,7 +79,7 @@ class MinMaxAgent(Agent):
             next_state = self._get_next_state(state, action)
             work_items.append((
                 action, next_state, self.depth - 1, player,
-                self.env.N, self.env,
+                self._rows, self._cols, self.env,
             ))
 
         num_workers = min(len(work_items), os.cpu_count() or 4)
@@ -180,12 +188,12 @@ class MinMaxAgent(Agent):
 
     def _get_legal_actions(self, state):
         legal_actions = []
-        for i in range(self.N + 1):
-            for j in range(self.N):
+        for i in range(self._rows + 1):
+            for j in range(self._cols):
                 if state.horizontal_edges[i][j] == False:
                     legal_actions.append((0, i, j))
-        for i in range(self.N):
-            for j in range(self.N + 1):
+        for i in range(self._rows):
+            for j in range(self._cols + 1):
                 if state.vertical_edges[i][j] == False:
                     legal_actions.append((1, i, j))
         return legal_actions
@@ -224,7 +232,7 @@ class MinMaxAgent(Agent):
             new_state.current_player = 3 - new_state.current_player
 
         # Check if game is done
-        if new_state.score[0] + new_state.score[1] == self.N * self.N:
+        if new_state.score[0] + new_state.score[1] == self._rows * self._cols:
             new_state.done = True
 
         return new_state

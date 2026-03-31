@@ -131,13 +131,18 @@ def make_agent(agent_type, env, **kwargs):
     
     elif agent_type == 'mcts':
         from agents.MCTSAgent import MCTSAgent
-        n_sims = kwargs.get('n_simulations', 400)
-        return MCTSAgent(env, n_simulations=n_sims)
+        iters = kwargs.get('iterations', kwargs.get('n_simulations', 1000))
+        return MCTSAgent(env, iterations=iters)
+    
+    elif agent_type == 'human':
+        from agents.HumanAgent import HumanAgent
+        return HumanAgent(env)
     
     else:
         raise ValueError(
             f"Unknown agent type: '{agent_type}'. "
-            f"Available: random, greedy, minmax, alphabeta, alphazero, alphazero_bit, alphazero_cpp, mcts"
+            f"Available: random, greedy, minmax, alphabeta, alphazero, "
+            f"alphazero_bit, alphazero_cpp, mcts, human"
         )
 
 
@@ -444,6 +449,64 @@ class Arena:
         print(f"  {'Avg game time':>25s}: {avg_time:.2f}s")
         print(f"{'─'*60}\n")
 
+    def play_interactive(self, opponent_spec, human_player=1):
+        """Play a single interactive game: human vs agent.
+
+        Args:
+            opponent_spec: Agent spec string for the AI opponent
+            human_player:  1 if human goes first, 2 if second
+        """
+        self.env.reset()
+
+        from agents.HumanAgent import HumanAgent
+        human = HumanAgent(self.env)
+
+        opp_type, opp_kwargs = parse_agent_spec(opponent_spec)
+        opponent = make_agent(opp_type, self.env, **opp_kwargs)
+
+        if human_player == 1:
+            agents = {1: human, 2: opponent}
+            names  = {1: 'You', 2: opponent_spec}
+        else:
+            agents = {1: opponent, 2: human}
+            names  = {1: opponent_spec, 2: 'You'}
+
+        print(f"\n{'═' * 50}")
+        print(f"  You (Player {human_player}) vs {opponent_spec}")
+        print(f"  Board: {self.board_size}x{self.board_size}")
+        print(f"{'═' * 50}")
+
+        try:
+            while not self.env.done:
+                cp = self.env.current_player
+                action = agents[cp].act()
+
+                if cp != human_player:
+                    # Show what the AI played
+                    rc = human.action_to_rc(action)
+                    print(f"  ◆ {names[cp]} plays ({rc[0]},{rc[1]})")
+
+                self.env.step(action)
+
+        except KeyboardInterrupt:
+            print("\n  Game aborted.")
+            return None
+
+        # Final board
+        human._render_board()
+        s1, s2 = self.env.score
+        print(f"\n  Final Score: P1={s1}  P2={s2}")
+        your_score = s1 if human_player == 1 else s2
+        opp_score  = s2 if human_player == 1 else s1
+        if your_score > opp_score:
+            print("  🎉 You win!")
+        elif opp_score > your_score:
+            print(f"  {opponent_spec} wins. Better luck next time!")
+        else:
+            print("  It's a draw!")
+
+        return {'your_score': your_score, 'opp_score': opp_score}
+
 
 # ─── Round-Robin Tournament ───────────────────────────────────────
 
@@ -535,7 +598,7 @@ def main():
         description='Dots and Boxes Arena — pit any agent against any other',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Agent types: random, greedy, minmax, alphabeta, alphazero, alphazero_bit, mcts
+Agent types: random, greedy, minmax, alphabeta, alphazero, alphazero_bit, mcts, human
 
 Agent spec format: 'type' or 'type:param=value,param=value'
   Examples:
@@ -544,6 +607,10 @@ Agent spec format: 'type' or 'type:param=value,param=value'
     alphabeta:depth=4
     alphazero_bit:n_simulations=800
     minmax:depth=3,parallel=false
+
+Interactive (human) mode:
+    python arena.py --play alphabeta:depth=3
+    python arena.py --play greedy --player 2     # go second
 
 Tournament mode (--tournament):
     python arena.py --tournament random greedy alphabeta:depth=3 --games 20
@@ -556,8 +623,8 @@ Tournament mode (--tournament):
                        help='Number of games per matchup (default: 10)')
     parser.add_argument('--size', '-s', type=int, default=3,
                        help='Board size N (default: 3)')
-    parser.add_argument('--env', type=str, default='bit', choices=['bit', 'classic'],
-                       help="Environment type (default: bit)")
+    parser.add_argument('--env', type=str, default='classic', choices=['bit', 'classic'],
+                       help="Environment type (default: classic)")
     parser.add_argument('--display', '-d', action='store_true',
                        help='Display board after each move')
     parser.add_argument('--swap', action='store_true',
@@ -566,10 +633,17 @@ Tournament mode (--tournament):
                        help='Record games to JSON file')
     parser.add_argument('--tournament', nargs='+', type=str, default=None,
                        help='Run round-robin tournament with these agents')
+    parser.add_argument('--play', type=str, default=None,
+                       help='Play interactively against this agent')
+    parser.add_argument('--player', type=int, default=1, choices=[1, 2],
+                       help='Which player you are (1=first, 2=second, default: 1)')
     
     args = parser.parse_args()
     
-    if args.tournament:
+    if args.play:
+        arena = Arena(board_size=args.size, env_type=args.env)
+        arena.play_interactive(args.play, human_player=args.player)
+    elif args.tournament:
         tournament(args.tournament, board_size=args.size, 
                   env_type=args.env, games_per_match=args.games)
     elif args.p1 and args.p2:
@@ -590,9 +664,10 @@ Tournament mode (--tournament):
     else:
         parser.print_help()
         print("\n  Quick examples:")
+        print("    python arena.py --play greedy                           # play vs greedy")
+        print("    python arena.py --play alphabeta:depth=3 --player 2    # go second")
         print("    python arena.py --p1 greedy --p2 random --games 20")
         print("    python arena.py --p1 alphabeta:depth=3 --p2 greedy --swap")
-        print("    python arena.py --p1 alphazero_bit --p2 alphabeta:depth=2 --games 5")
         print("    python arena.py --tournament random greedy alphabeta:depth=3")
 
 
