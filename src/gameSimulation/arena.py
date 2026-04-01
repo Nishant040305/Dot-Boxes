@@ -53,11 +53,21 @@ def make_env(board_size, env_type='bit'):
 
 def _find_model_path(filename):
     """Find model file in standard locations."""
+    import re
     candidates = [
         os.path.join(_src_dir, '..', 'models', filename),
         os.path.join(_src_dir, 'models', filename),
-        os.path.join(_src_dir, 'cpp', 'models', filename),
     ]
+    # Auto-detect board size subdirectory from filename (e.g. alphazero_4x3.pt -> 4x3/)
+    m = re.search(r'(\d+x\d+)', filename)
+    if m:
+        board = m.group(1)
+        candidates.append(os.path.join(_src_dir, 'cpp', 'models', board, filename))
+    # Fallback: search all subdirs under cpp/models/
+    cpp_models = os.path.join(_src_dir, 'cpp', 'models')
+    if os.path.isdir(cpp_models):
+        for sub in os.listdir(cpp_models):
+            candidates.append(os.path.join(cpp_models, sub, filename))
     for path in candidates:
         path = os.path.abspath(path)
         if os.path.exists(path):
@@ -120,17 +130,11 @@ def make_agent(agent_type, env, **kwargs):
         model_path = kwargs.get('model_path', _find_model_path(f"alphazero_bit_{rows}x{cols}_checkpoint.pth"))
         device = kwargs.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
         checkpoint = kwargs.get('checkpoint', True)
-        add_noise = kwargs.get('add_noise', False)
-        return AlphaZeroBitAgent(env, model_path=model_path, n_simulations=n_sims, device=device, checkpoint=checkpoint, add_noise=add_noise)
-    
     elif agent_type == 'alphazero_cpp':
         from agents.AlphaZeroCppAgent import AlphaZeroCppAgent
         n_sims = kwargs.get('n_simulations', 400)
         model_path = kwargs.get('model_path', _find_model_path(f"alphazero_{rows}x{cols}.pt"))
-        hidden = kwargs.get('hidden_size', 256)
-        blocks = kwargs.get('num_res_blocks', 6)
-        return AlphaZeroCppAgent(env, model_path=model_path, n_simulations=n_sims,
-                                 hidden_size=hidden, num_res_blocks=blocks)
+        return AlphaZeroCppAgent(env, model_path=model_path, n_simulations=n_sims)
     
     elif agent_type == 'mcts':
         from agents.MCTSAgent import MCTSAgent

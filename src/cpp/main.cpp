@@ -86,6 +86,7 @@ int main(int argc, char* argv[]) {
                 std::cerr << "Unknown config: " << val << std::endl;
                 return 1;
             }
+            cols_set = true;
         }
         else if (arg == "--rows")      cfg.rows = std::stoi(val);
         else if (arg == "--cols")      { cfg.cols = std::stoi(val); cols_set = true; }

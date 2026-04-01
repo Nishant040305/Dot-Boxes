@@ -42,6 +42,16 @@ std::string AlphaZeroTrainer::model_path() const {
 void AlphaZeroTrainer::train() {
     std::filesystem::create_directories(cfg_.model_dir);
 
+    // Write model architecture sidecar so Python can auto-detect hidden/blocks
+    {
+        std::ofstream info(cfg_.model_dir + "/model_info.json");
+        info << "{\"rows\":" << cfg_.rows
+             << ",\"cols\":" << cfg_.cols
+             << ",\"hidden_size\":" << cfg_.hidden_size
+             << ",\"num_res_blocks\":" << cfg_.num_res_blocks
+             << "}\n";
+    }
+
     // If no phases provided, create a default one from existing config
     if (cfg_.phases.empty()) {
         Phase p;

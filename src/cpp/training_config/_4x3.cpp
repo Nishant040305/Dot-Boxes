@@ -2,8 +2,8 @@ static azb::TrainConfig make_4x3_config() {
     azb::TrainConfig cfg;
 
     // ── Board ────────────────────────────────────────────────
-    cfg.rows = 3;
-    cfg.cols = 4;
+    cfg.rows = 4;
+    cfg.cols = 3;
 
     // ── Network ──────────────────────────────────────────────
     cfg.hidden_size    = 128;

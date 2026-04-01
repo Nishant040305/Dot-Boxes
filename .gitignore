@@ -7,3 +7,7 @@ archive
 *.pt
 build/
 libtorch/
+4x3/
+5x5/
+8x7/
+3x3/

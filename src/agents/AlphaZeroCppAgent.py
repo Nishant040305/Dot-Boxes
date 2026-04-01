@@ -47,6 +47,22 @@ class AlphaZeroCppAgent(Agent):
 
         if server_binary is None:
             server_binary = self._find_server_binary()
+            
+        # Auto-detect architecture from model_info.json sidecar written by alphazero_train.
+        # We cannot inspect the TorchScript .pt archive as a state_dict (torch::save writes
+        # a full module archive, not a plain dict), so we use the sidecar instead.
+        model_dir = os.path.dirname(model_path)
+        info_path = os.path.join(model_dir, 'model_info.json')
+        if os.path.exists(info_path):
+            try:
+                with open(info_path, 'r') as f:
+                    info = json.load(f)
+                hidden_size = info.get('hidden_size', hidden_size)
+                num_res_blocks = info.get('num_res_blocks', num_res_blocks)
+                print(f"[AlphaZeroCppAgent] Detected architecture: "
+                      f"hidden={hidden_size}, blocks={num_res_blocks}")
+            except Exception as e:
+                print(f"[AlphaZeroCppAgent] Could not read model_info.json: {e}, using defaults.")
 
         self._proc = self._start_server(
             server_binary, self.rows, self.cols, model_path,
