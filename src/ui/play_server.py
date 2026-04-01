@@ -16,6 +16,7 @@ import sys
 import argparse
 import time
 import threading
+import json
 
 # Ensure src is on the path
 _script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -137,6 +138,68 @@ def get_agents():
     return jsonify(AGENTS)
 
 
+@app.route('/api/archive')
+def get_archive():
+    archive_file = os.path.join(_script_dir, 'game_archive.json')
+    if os.path.exists(archive_file):
+        try:
+            with open(archive_file, 'r') as f:
+                return jsonify(json.load(f))
+        except Exception:
+            pass
+    return jsonify([])
+
+
+def _archive_game(env, game_state):
+    from datetime import datetime
+    
+    archive_file = os.path.join(_script_dir, 'game_archive.json')
+    try:
+        if os.path.exists(archive_file):
+            with open(archive_file, 'r') as f:
+                archive = list(json.load(f))
+        else:
+            archive = []
+    except Exception:
+        archive = []
+
+    s1, s2 = list(env.score)
+    if s1 > s2:
+        winner = 'Player 1'
+    elif s2 > s1:
+        winner = 'Player 2'
+    else:
+        winner = 'Draw'
+
+    human_player = game_state['human_player']
+    if human_player == 1:
+        p1 = 'Human'
+        p2 = game_state['agent_spec']
+    elif human_player == 2:
+        p1 = game_state['agent_spec']
+        p2 = 'Human'
+    else:
+        p1 = game_state['agent_spec']
+        p2 = game_state['agent2_spec'] if 'agent2_spec' in game_state and game_state['agent2_spec'] else p1
+
+    record = {
+        'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'board_size': f"{game_state['board_size'][0]}x{game_state['board_size'][1]}",
+        'matchup': f"{p1} vs {p2}",
+        'score': f"{s1} - {s2}",
+        'winner': winner
+    }
+    
+    archive.insert(0, record)
+    while len(archive) > 50:
+        archive.pop()
+    
+    try:
+        with open(archive_file, 'w') as f:
+            json.dump(archive, f, indent=4)
+    except Exception as e:
+        print(f"Failed to save archive: {e}")
+
 # ─── SocketIO events ──────────────────────────────────────────────
 
 @socketio.on('connect')
@@ -152,6 +215,7 @@ def on_new_game(data):
     """
     with game_lock:
         agent_spec = data.get('agent_spec', 'greedy')
+        agent2_spec = data.get('agent2_spec', agent_spec)
         board_size_in = data.get('board_size', [3, 3])
         if isinstance(board_size_in, int):
             rows, cols = board_size_in, board_size_in
@@ -166,14 +230,17 @@ def on_new_game(data):
 
         # Determine correct env type for the agent
         agent_type_str, _ = parse_agent_spec(agent_spec)
-        if agent_type_str in ('alphazero_cpp', 'alphazero_bit'):
-            if rows != cols:
-                emit('error', {'message': f'{agent_type_str} strictly requires a square board!'})
-                return
-            env_type = 'bit'  # these require BitBoardEnv
+        a2_type_str, _ = parse_agent_spec(agent2_spec)
+        
+        # if agent_type_str == 'alphazero_bit' or (human_player == -1 and a2_type_str == 'alphazero_bit'):
+        #     if rows != cols:
+        #         emit('error', {'message': f'AlphaZero (Python) strictly requires a square board!'})
+        #         return
             
         if rows != cols:
             env_type = 'classic' # BitBoardEnv only supports square boards right now
+        elif agent_type_str in ('alphazero_cpp', 'alphazero_bit') or (human_player == -1 and a2_type_str in ('alphazero_cpp', 'alphazero_bit')):
+            env_type = 'bit'
 
         if env_type == 'bit':
             env = make_env(rows, 'bit')
@@ -184,15 +251,22 @@ def on_new_game(data):
         env.reset()
 
         a_type, a_kwargs = parse_agent_spec(agent_spec)
+        a2_type, a2_kwargs = parse_agent_spec(agent2_spec)
         try:
             agent = make_agent(a_type, env, **a_kwargs)
+            if human_player == -1:
+                agent2 = make_agent(a2_type, env, **a2_kwargs)
+            else:
+                agent2 = None
         except Exception as e:
             emit('error', {'message': f'Failed to create agent: {str(e)}'})
             return
 
         game_state['env'] = env
         game_state['agent'] = agent
+        game_state['agent2'] = agent2
         game_state['agent_spec'] = agent_spec
+        game_state['agent2_spec'] = agent2_spec
         game_state['board_size'] = board_size
         game_state['env_type'] = env_type
         game_state['human_player'] = human_player
@@ -201,11 +275,12 @@ def on_new_game(data):
         state = _env_to_state(env, board_size)
         state['human_player'] = human_player
         state['agent_name'] = agent_spec
+        state['agent2_name'] = agent2_spec
         emit('game_started', state)
 
-        # If AI goes first, make its move
-        if human_player == 2:
-            _ai_move()
+    # If AI goes first, make its move
+    if human_player in (2, -1):
+        socketio.start_background_task(_ai_move)
 
 
 @socketio.on('human_move')
@@ -256,6 +331,7 @@ def on_human_move(data):
         # If game over, stop
         if env.done:
             game_state['game_active'] = False
+            _archive_game(env, game_state)
             emit('game_over', {
                 'score': list(env.score),
                 'human_player': human_player,
@@ -266,55 +342,70 @@ def on_human_move(data):
         if env.current_player == human_player:
             return
 
-        # Otherwise, let AI play
-        _ai_move()
+    # Otherwise, let AI play
+    socketio.start_background_task(_ai_move)
 
 
 def _ai_move():
     """Let the AI agent make move(s) until it's the human's turn or game over."""
-    env = game_state['env']
-    agent = game_state['agent']
-    human_player = game_state['human_player']
-    board_size = game_state['board_size']
+    while True:
+        with game_lock:
+            if not game_state['game_active']:
+                break
+                
+            env = game_state['env']
+            human_player = game_state['human_player']
+            
+            if env.done or env.current_player == human_player:
+                break
+                
+            if human_player == -1:
+                agent = game_state['agent'] if env.current_player == 1 else game_state['agent2']
+            else:
+                agent = game_state['agent']
+                
+            board_size = game_state['board_size']
 
-    while not env.done and env.current_player != human_player:
-        # Point agent to the current env
-        agent.env = env
+            # Point agent to the current env
+            agent.env = env
 
-        try:
-            start_t = time.time()
-            action = agent.act()
-            elapsed = time.time() - start_t
-        except Exception as e:
-            socketio.emit('error', {'message': f'Agent error: {str(e)}'})
-            return
+            try:
+                start_t = time.time()
+                action = agent.act()
+                elapsed = time.time() - start_t
+            except Exception as e:
+                socketio.emit('error', {'message': f'Agent error: {str(e)}'})
+                break
 
-        if action is None:
-            break
+            if action is None:
+                break
 
-        player_before = env.current_player
-        rc = _action_to_rc(action)
-        env.step(action)
+            player_before = env.current_player
+            rc = _action_to_rc(action)
+            env.step(action)
 
-        state = _env_to_state(env, board_size)
-        state['last_move'] = {
-            'row': rc[0], 'col': rc[1],
-            'player': player_before,
-            'action': list(action),
-            'think_time': round(elapsed, 3),
-        }
-        state['human_player'] = human_player
-        socketio.emit('state_update', state)
+            state = _env_to_state(env, board_size)
+            state['last_move'] = {
+                'row': rc[0], 'col': rc[1],
+                'player': player_before,
+                'action': list(action),
+                'think_time': round(elapsed, 3),
+            }
+            state['human_player'] = human_player
 
-        # Small delay so the frontend can animate
-        time.sleep(0.15)
+            socketio.emit('state_update', state)
 
-    if env.done:
-        game_state['game_active'] = False
-        socketio.emit('game_over', {
-            'score': list(env.score),
-            'human_player': human_player,
-        })
+            if env.done:
+                game_state['game_active'] = False
+                _archive_game(env, game_state)
+                socketio.emit('game_over', {
+                    'score': list(env.score),
+                    'human_player': human_player,
+                })
+                break
+
+        # Small delay outside the lock so the frontend can animate, and humans can interrupt
+        time.sleep(0.5)
 
 
 @socketio.on('get_available_moves')
