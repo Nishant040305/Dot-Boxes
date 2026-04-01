@@ -257,8 +257,18 @@ class MCTSAgent(Agent):
     # ──────────────────────────────────────────────
 
     @property
-    def N(self):
-        return self.env.N
+    def rows(self) -> int:
+        r = getattr(self.env, 'rows', None)
+        if r is not None: return r
+        n = getattr(self.env, 'N', 3)
+        return n if n is not None else 3
+
+    @property
+    def cols(self) -> int:
+        c = getattr(self.env, 'cols', None)
+        if c is not None: return c
+        n = getattr(self.env, 'N', 3)
+        return n if n is not None else 3
 
     def _get_state(self, env):
         """Build a State snapshot from the live environment (deep-copied)."""
@@ -285,12 +295,12 @@ class MCTSAgent(Agent):
     def _get_legal_actions(self, state):
         """Return list of all unplaced edges as (type, i, j) tuples."""
         legal_actions = []
-        for i in range(self.N + 1):
-            for j in range(self.N):
+        for i in range(self.rows + 1):
+            for j in range(self.cols):
                 if not state.horizontal_edges[i][j]:
                     legal_actions.append((0, i, j))
-        for i in range(self.N):
-            for j in range(self.N + 1):
+        for i in range(self.rows):
+            for j in range(self.cols + 1):
                 if not state.vertical_edges[i][j]:
                     legal_actions.append((1, i, j))
         return legal_actions
@@ -317,7 +327,7 @@ class MCTSAgent(Agent):
             new_state.current_player = 3 - new_state.current_player
 
         # Check if game is done
-        if new_state.score[0] + new_state.score[1] == self.N * self.N:
+        if new_state.score[0] + new_state.score[1] == self.rows * self.cols:
             new_state.done = True
 
         return new_state

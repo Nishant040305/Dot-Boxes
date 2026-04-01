@@ -56,6 +56,7 @@ def _find_model_path(filename):
     candidates = [
         os.path.join(_src_dir, '..', 'models', filename),
         os.path.join(_src_dir, 'models', filename),
+        os.path.join(_src_dir, 'cpp', 'models', filename),
     ]
     for path in candidates:
         path = os.path.abspath(path)
@@ -83,6 +84,8 @@ def make_agent(agent_type, env, **kwargs):
         Agent instance
     """
     agent_type = agent_type.lower().strip()
+    rows = getattr(env, 'rows', env.N)
+    cols = getattr(env, 'cols', env.N)
     
     if agent_type == 'random':
         from agents.RandomAgent import RandomAgent
@@ -107,14 +110,14 @@ def make_agent(agent_type, env, **kwargs):
     elif agent_type == 'alphazero':
         from agents.AlphaZeroAgent import AlphaZeroAgent
         n_sims = kwargs.get('n_simulations', 400)
-        model_path = kwargs.get('model_path', _find_model_path(f"alphazero_{env.N}x{env.N}.pth"))
+        model_path = kwargs.get('model_path', _find_model_path(f"alphazero_{rows}x{cols}.pth"))
         device = kwargs.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
         return AlphaZeroAgent(env, model_path=model_path, n_simulations=n_sims, device=device)
     
     elif agent_type == 'alphazero_bit':
         from agents.AlphaZeroBitAgent import AlphaZeroBitAgent
         n_sims = kwargs.get('n_simulations', 400)
-        model_path = kwargs.get('model_path', _find_model_path(f"alphazero_bit_{env.N}x{env.N}_checkpoint.pth"))
+        model_path = kwargs.get('model_path', _find_model_path(f"alphazero_bit_{rows}x{cols}_checkpoint.pth"))
         device = kwargs.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
         checkpoint = kwargs.get('checkpoint', True)
         add_noise = kwargs.get('add_noise', False)
@@ -123,7 +126,7 @@ def make_agent(agent_type, env, **kwargs):
     elif agent_type == 'alphazero_cpp':
         from agents.AlphaZeroCppAgent import AlphaZeroCppAgent
         n_sims = kwargs.get('n_simulations', 400)
-        model_path = kwargs.get('model_path', _find_model_path(f"alphazero_{env.N}x{env.N}.pt"))
+        model_path = kwargs.get('model_path', _find_model_path(f"alphazero_{rows}x{cols}.pt"))
         hidden = kwargs.get('hidden_size', 256)
         blocks = kwargs.get('num_res_blocks', 6)
         return AlphaZeroCppAgent(env, model_path=model_path, n_simulations=n_sims,

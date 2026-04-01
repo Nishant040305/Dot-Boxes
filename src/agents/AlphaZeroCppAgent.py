@@ -36,19 +36,20 @@ class AlphaZeroCppAgent(Agent):
                            Auto-detected if None.
         """
         super().__init__(env)
-        self.n = env.N
+        self.rows = getattr(env, 'rows', env.N)
+        self.cols = getattr(env, 'cols', env.N)
 
         if model_path is None:
             current_dir = os.path.dirname(os.path.abspath(__file__))
             root_dir = os.path.dirname(os.path.dirname(current_dir))
             models_dir = os.path.join(root_dir, 'models')
-            model_path = os.path.join(models_dir, f"alphazero_{env.N}x{env.N}.pt")
+            model_path = os.path.join(models_dir, f"alphazero_{self.rows}x{self.cols}.pt")
 
         if server_binary is None:
             server_binary = self._find_server_binary()
 
         self._proc = self._start_server(
-            server_binary, env.N, env.N, model_path,
+            server_binary, self.rows, self.cols, model_path,
             n_simulations, hidden_size, num_res_blocks
         )
 
@@ -90,7 +91,7 @@ class AlphaZeroCppAgent(Agent):
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=sys.stderr,
             text=True,
             bufsize=1,  # line-buffered
         )
@@ -98,9 +99,8 @@ class AlphaZeroCppAgent(Agent):
         # Read the ready signal
         ready_line = proc.stdout.readline().strip()
         if not ready_line:
-            stderr = proc.stderr.read()
             raise RuntimeError(
-                f"Server failed to start.\nstderr: {stderr}"
+                "Server failed to start. See terminal for stderr output."
             )
 
         ready = json.loads(ready_line)
@@ -120,12 +120,37 @@ class AlphaZeroCppAgent(Agent):
         env = self.env
 
         # Send current state to C++ server
+        if hasattr(env, 'h_edges'):
+            h_edges = env.h_edges
+            v_edges = env.v_edges
+            boxes_p1 = env.boxes_p1
+            boxes_p2 = env.boxes_p2
+        else:
+            h_edges = 0
+            for r in range(self.rows + 1):
+                for c in range(self.cols):
+                    if env.horizontal_edges[r][c]:
+                        h_edges |= (1 << (r * self.cols + c))
+            v_edges = 0
+            for r in range(self.rows):
+                for c in range(self.cols + 1):
+                    if env.vertical_edges[r][c]:
+                        v_edges |= (1 << (r * (self.cols + 1) + c))
+            boxes_p1 = 0
+            boxes_p2 = 0
+            for r in range(self.rows):
+                for c in range(self.cols):
+                    if env.boxes[r][c] == 1:
+                        boxes_p1 |= (1 << (r * self.cols + c))
+                    elif env.boxes[r][c] == 2:
+                        boxes_p2 |= (1 << (r * self.cols + c))
+
         request = {
             'cmd': 'act',
-            'h_edges': env.h_edges,
-            'v_edges': env.v_edges,
-            'boxes_p1': env.boxes_p1,
-            'boxes_p2': env.boxes_p2,
+            'h_edges': h_edges,
+            'v_edges': v_edges,
+            'boxes_p1': boxes_p1,
+            'boxes_p2': boxes_p2,
             'current_player': env.current_player,
             'score_p1': env.score[0],
             'score_p2': env.score[1],
@@ -175,9 +200,8 @@ class AlphaZeroCppAgent(Agent):
         """Read a JSON response from the server."""
         line = self._proc.stdout.readline().strip()
         if not line:
-            stderr = self._proc.stderr.read()
             raise RuntimeError(
-                f"Server died unexpectedly.\nstderr: {stderr}"
+                "Server died unexpectedly. See terminal for stderr output."
             )
         return json.loads(line)
 

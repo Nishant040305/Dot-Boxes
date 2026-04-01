@@ -44,6 +44,7 @@ struct TrainConfig {
     int buffer_capacity   = 50000;
     int buffer_grow       = 0;      // Grow buffer by this much per iteration
     int num_iters         = 10;
+    bool resume           = false;
 
     // Model history
     int keep_checkpoints  = 5;      // Keep last N checkpoints

@@ -24,6 +24,11 @@
 #include "AlphaZeroTrain.h"
 #include "TrainConfig.h"
 
+// Include predefined config builder functions
+#include "training_config/_4x3.cpp"
+#include "training_config/_5x5.cpp"
+#include "training_config/_8x7.cpp"
+
 static void print_help() {
     std::cout << "AlphaZero Dots-and-Boxes Trainer (C++/LibTorch)\n"
               << "\nUsage: ./alphazero_train [options]\n"
@@ -39,9 +44,11 @@ static void print_help() {
               << "  --lr F            Learning rate (default: 0.001)\n"
               << "  --hidden N        Hidden size (default: 256)\n"
               << "  --blocks N        Residual blocks (default: 6)\n"
-              << "  --model-dir PATH  Model directory (default: ../models)\n"
-              << "  --help            Show this help\n"
-              << "  --phased          Use phased training (default: false)\n";
+               << "  --model-dir PATH  Model directory (default: ../models)\n"
+               << "  --config NAME     Load predefined config (4x3, 5x5, 8x7)\n"
+               << "  --help            Show this help\n"
+              << "  --phased          Use phased training (default: false)\n"
+              << "  --resume          Resume from last saved iteration state\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -71,7 +78,16 @@ int main(int argc, char* argv[]) {
         }
         std::string val = argv[++i];
 
-        if      (arg == "--rows")      cfg.rows = std::stoi(val);
+        if      (arg == "--config") {
+            if (val == "4x3") cfg = make_4x3_config();
+            else if (val == "5x5") cfg = make_5x5_config();
+            else if (val == "8x7") cfg = make_8x7_config();
+            else {
+                std::cerr << "Unknown config: " << val << std::endl;
+                return 1;
+            }
+        }
+        else if (arg == "--rows")      cfg.rows = std::stoi(val);
         else if (arg == "--cols")      { cfg.cols = std::stoi(val); cols_set = true; }
         else if (arg == "--workers")   cfg.num_workers = std::stoi(val);
         else if (arg == "--sims")      cfg.mcts_sims = std::stoi(val);
@@ -85,6 +101,7 @@ int main(int argc, char* argv[]) {
         else if (arg == "--model-dir") cfg.model_dir = val;
         else if (arg == "--grow")      cfg.buffer_grow = std::stoi(val);
         else if (arg == "--keep")      cfg.keep_checkpoints = std::stoi(val);
+        else if (arg == "--resume")    { cfg.resume = true; i--; }
         else {
             std::cerr << "Unknown option: " << arg << std::endl;
             return 1;

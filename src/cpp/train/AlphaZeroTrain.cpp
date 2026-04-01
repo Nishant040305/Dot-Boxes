@@ -3,6 +3,7 @@
 #include <chrono>
 #include <filesystem>
 #include <iostream>
+#include <fstream>
 
 namespace azb {
 
@@ -56,12 +57,28 @@ void AlphaZeroTrainer::train() {
         cfg_.phases.push_back(p);
     }
 
+    int start_phase_idx = 0;
+    int start_iter = 0;
+    std::string state_path = cfg_.model_dir + "/train_state_" + std::to_string(cfg_.rows) + "x" + std::to_string(cfg_.cols) + ".txt";
+
+    if (cfg_.resume) {
+        if (std::filesystem::exists(state_path)) {
+            std::ifstream ifs(state_path);
+            if (ifs >> start_phase_idx >> start_iter) {
+                std::cout << "[Trainer] Resuming from phase " << start_phase_idx << ", iter " << start_iter << std::endl;
+            }
+        } else {
+             std::cout << "[Trainer] No train state found to resume. Starting fresh." << std::endl;
+        }
+    }
+
     // Persistent optimizer
     // Note: We'll update the LR for each phase
     torch::optim::Adam optimizer(model_->parameters(),
-                                 torch::optim::AdamOptions(cfg_.phases[0].lr));
+                                 torch::optim::AdamOptions(cfg_.phases.empty() ? cfg_.learning_rate : cfg_.phases[0].lr));
 
-    for (const auto& phase : cfg_.phases) {
+    for (size_t p_idx = start_phase_idx; p_idx < cfg_.phases.size(); p_idx++) {
+        const auto& phase = cfg_.phases[p_idx];
         std::cout << "\n>>> STARTING PHASE: " << phase.name << " <<<" << std::endl;
         std::cout << "Config: sims=" << phase.mcts_sims 
                   << ", episodes=" << phase.episodes_per_iter
@@ -72,7 +89,9 @@ void AlphaZeroTrainer::train() {
             static_cast<torch::optim::AdamOptions&>(param_group.options()).lr(phase.lr);
         }
 
-        for (int iter = 0; iter < phase.iterations; iter++) {
+        int iter_start_loop = (p_idx == static_cast<size_t>(start_phase_idx)) ? start_iter : 0;
+
+        for (int iter = iter_start_loop; iter < phase.iterations; iter++) {
             std::cout << "\n=== [" << phase.name << "] Iteration " 
                       << (iter + 1) << "/" << phase.iterations << " ===" << std::endl;
             auto iter_start = std::chrono::steady_clock::now();
@@ -179,7 +198,17 @@ void AlphaZeroTrainer::train() {
                 replay_buffer_.set_capacity(new_capacity);
             }
 
-            std::cout << "  Models saved to " << iter_path << " and " << model_path() << std::endl;
+            int saved_iter = iter + 1;
+            int saved_phase = p_idx;
+            if (saved_iter >= phase.iterations) {
+                saved_phase++;
+                saved_iter = 0;
+            }
+            std::ofstream ofs(state_path);
+            ofs << saved_phase << " " << saved_iter << "\n";
+            ofs.close();
+
+            std::cout << "  Models saved to " << iter_path << " and " << model_path() << "\n  State saved." << std::endl;
         }
     }
     std::cout << "\nAll training phases complete." << std::endl;
