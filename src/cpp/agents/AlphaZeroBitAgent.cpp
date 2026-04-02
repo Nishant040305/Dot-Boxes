@@ -54,21 +54,49 @@ uint32_t AlphaZeroBitAgent::action_to_index(const Action& action) const {
 }
 
 std::vector<float> AlphaZeroBitAgent::build_features(const NodeState& state) const {
-    const int input_size = n_h_edges_ + n_v_edges_ + rows_ * cols_ + 1;
+    // Must exactly match AlphaZeroBitNet::preprocess() layout:
+    //   [h_edges | v_edges | box_owner | edge_count_onehot(5 ch/box) | progress(2)]
+    const int n_box = rows_ * cols_;
+    const int input_size = n_h_edges_ + n_v_edges_ + n_box + n_box * 5 + 2;
     std::vector<float> features(static_cast<size_t>(input_size), 0.0f);
 
+    // H / V edge bits
     state.h_edges.for_each_set_bit([&](size_t i) { features[i] = 1.0f; });
     state.v_edges.for_each_set_bit([&](size_t i) { features[n_h_edges_ + i] = 1.0f; });
 
-    const int box_offset = n_h_edges_ + n_v_edges_;
+    // Box ownership (current-player relative)
+    const int box_off = n_h_edges_ + n_v_edges_;
     state.boxes_p1.for_each_set_bit([&](size_t i) {
-        features[box_offset + i] = (state.current_player == 1) ? 1.0f : -1.0f;
+        features[box_off + i] = (state.current_player == 1) ? 1.0f : -1.0f;
     });
     state.boxes_p2.for_each_set_bit([&](size_t i) {
-        features[box_offset + i] = (state.current_player == 2) ? 1.0f : -1.0f;
+        features[box_off + i] = (state.current_player == 2) ? 1.0f : -1.0f;
     });
 
-    features.back() = (state.current_player == 1) ? 1.0f : -1.0f;
+    // Edge-count one-hot: 5 channels per box (0..4 edges filled)
+    const int cnt_off = box_off + n_box;
+    for (int r = 0; r < rows_; r++) {
+        for (int c = 0; c < cols_; c++) {
+            const int box_idx = r * cols_ + c;
+            int count = 0;
+            if (state.h_edges.test(static_cast<size_t>(r * cols_ + c)))           count++;
+            if (state.h_edges.test(static_cast<size_t>((r + 1) * cols_ + c)))     count++;
+            if (state.v_edges.test(static_cast<size_t>(r * (cols_ + 1) + c)))     count++;
+            if (state.v_edges.test(static_cast<size_t>(r * (cols_ + 1) + (c+1)))) count++;
+            features[cnt_off + box_idx * 5 + count] = 1.0f;
+        }
+    }
+
+    // Game-progress scalars
+    const float total_f = static_cast<float>(n_box);
+    const int filled = static_cast<int>(state.boxes_p1.popcount() +
+                                        state.boxes_p2.popcount());
+    const int my_score  = (state.current_player == 1) ? state.score_p1 : state.score_p2;
+    const int opp_score = (state.current_player == 1) ? state.score_p2 : state.score_p1;
+    const int prog_off = cnt_off + n_box * 5;
+    features[prog_off]     = static_cast<float>(filled) / total_f;
+    features[prog_off + 1] = static_cast<float>(my_score - opp_score) / total_f;
+
     return features;
 }
 

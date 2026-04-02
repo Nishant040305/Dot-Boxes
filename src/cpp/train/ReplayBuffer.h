@@ -10,10 +10,11 @@
 
 namespace azb {
 
-/// A single training sample: (state_features, policy_target, value_target).
+/// A single training sample: (state_features, policy_target, legal_mask, value_target).
 struct TrainSample {
-    torch::Tensor state;   // shape: (input_size,)
-    torch::Tensor policy;  // shape: (action_size,)
+    torch::Tensor state;       // shape: (input_size,)
+    torch::Tensor policy;      // shape: (action_size,) — MCTS visit frequencies
+    torch::Tensor legal_mask;  // shape: (action_size,) — 1=legal, 0=illegal
     float value = 0.0f;
 };
 

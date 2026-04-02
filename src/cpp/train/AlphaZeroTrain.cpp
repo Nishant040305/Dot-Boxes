@@ -228,37 +228,56 @@ float AlphaZeroTrainer::train_epoch(torch::optim::Adam& optimizer) {
     auto batch = replay_buffer_.sample(cfg_.batch_size);
     if (batch.empty()) return 0.0f;
 
-    std::vector<torch::Tensor> states, policies;
+    std::vector<torch::Tensor> states, policies, masks;
     std::vector<float> values;
     states.reserve(batch.size());
     policies.reserve(batch.size());
+    masks.reserve(batch.size());
     values.reserve(batch.size());
 
     for (auto& sample : batch) {
         states.push_back(sample.state);
         policies.push_back(sample.policy);
+        masks.push_back(sample.legal_mask);
         values.push_back(sample.value);
     }
 
-    auto states_t = torch::stack(states).to(device_);
+    auto states_t   = torch::stack(states).to(device_);
     auto policies_t = torch::stack(policies).to(device_);
-    auto values_t = torch::tensor(values, torch::kFloat32).unsqueeze(1).to(device_);
+    auto masks_t    = torch::stack(masks).to(device_);   // (batch, action_size), 1.0=legal
+    auto values_t   = torch::tensor(values, torch::kFloat32).unsqueeze(1).to(device_);
 
     // Forward
     auto [logits, out_value] = model_->forward(states_t);
 
-    // Loss
+    // ── Value loss ───────────────────────────────────────────────────────
+    // Value targets are exactly ±1 or 0. MSE is appropriate here.
     auto v_loss = torch::mse_loss(out_value, values_t);
-    auto log_probs = torch::log_softmax(logits, /*dim=*/1);
+
+    // ── Policy loss (masked cross-entropy) ───────────────────────────────
+    // Set illegal-move logits to -1e9 BEFORE log_softmax.
+    // This ensures the network's gradient on illegal moves is ~zero,
+    // and the log_softmax denominator is not inflated by illegal actions.
+    // Without this, every gradient step wastes capacity on impossible moves
+    // and the CE loss underestimates legal-move probabilities.
+    auto masked_logits = logits + (masks_t - 1.0f) * 1e9f;  // illegal → -1e9
+    auto log_probs = torch::log_softmax(masked_logits, /*dim=*/1);
+    // Standard AlphaZero cross-entropy: -sum(pi * log p) / batch
     auto p_loss = -(policies_t * log_probs).sum() / static_cast<float>(cfg_.batch_size);
-    auto loss = v_loss + p_loss;
+
+    // Combine: weight value loss x1.5 to give value head sufficient signal
+    // relative to policy head (policy has more outputs = larger raw gradient)
+    auto loss = 1.5f * v_loss + p_loss;
 
     // Backward
     optimizer.zero_grad();
     loss.backward();
+    // Gradient clipping for stability
+    torch::nn::utils::clip_grad_norm_(model_->parameters(), 1.0f);
     optimizer.step();
 
     return loss.item<float>();
 }
+
 
 }  // namespace azb
