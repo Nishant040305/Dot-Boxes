@@ -78,11 +78,13 @@ private:
 
     struct Node {
         NodeState state;
-        Node* parent = nullptr;
-        std::unordered_map<uint32_t, Node*> children;
+        struct Edge {
+            Node* node;
+            float prior;
+        };
+        std::unordered_map<uint32_t, Edge> children;
         int visits = 0;
         float value_sum = 0.0f;
-        float prior = 0.0f;
         enum class Status { kUnexpanded, kPending, kExpanded } status = Status::kUnexpanded;
         uint64_t pending_id = 0;
     };
@@ -115,7 +117,7 @@ private:
     std::vector<float> build_features(const NodeState& state) const;
     bool try_expand(Node& node, bool is_root, float& out_value);
     std::pair<Action, Node*> select_child(Node& node);
-    void backpropagate(Node* node, float value);
+    void backpropagate(const std::vector<Node*>& path, float value);
     Action best_action(const Node& root, float temperature);
     uint32_t action_to_index(const Action& action) const;
 
@@ -142,6 +144,9 @@ private:
     // Cleared at the start of each act() call.
     InferenceCache inference_cache_;
     std::unordered_map<StateKey128, uint64_t, StateKey128Hasher> pending_cache_;
+    
+    // DAG Transposition Table: board state → Node* (cleared per act)
+    std::unordered_map<StateKey128, Node*, StateKey128Hasher> dag_table_;
 };
 
 }  // namespace azb

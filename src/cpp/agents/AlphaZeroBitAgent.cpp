@@ -274,11 +274,18 @@ bool AlphaZeroBitAgent::try_expand(Node& node, bool is_root, float& out_value) {
     }
 
     for (size_t i = 0; i < actions.size(); i++) {
-        Node* child = new Node();
-        child->state = apply_action(node.state, actions[i]);
-        child->parent = &node;
-        child->prior = priors[i];
-        node.children[action_to_index(actions[i])] = child;
+        NodeState next_state = apply_action(node.state, actions[i]);
+        StateKey128 next_key = state_key(next_state);
+        Node* child = nullptr;
+        auto it = dag_table_.find(next_key);
+        if (it != dag_table_.end()) {
+            child = it->second;
+        } else {
+            child = new Node();
+            child->state = next_state;
+            dag_table_[next_key] = child;
+        }
+        node.children[action_to_index(actions[i])] = {child, priors[i]};
     }
 
     node.status = Node::Status::kExpanded;
@@ -292,18 +299,18 @@ std::pair<Action, AlphaZeroBitAgent::Node*> AlphaZeroBitAgent::select_child(Node
     Node* best_child = nullptr;
 
     int sum_visits = 0;
-    for (const auto& kv : node.children) sum_visits += kv.second->visits;
+    for (const auto& kv : node.children) sum_visits += kv.second.node->visits;
     const float sqrt_sum = std::sqrt(static_cast<float>(sum_visits + 1));
     const float parent_q = (node.visits > 0) ? node_value(node) : 0.0f;
     const float fpu_value = parent_q - fpu_reduction_;
 
     for (const auto& kv : node.children) {
         const uint32_t idx = kv.first;
-        Node* child = kv.second;
+        Node* child = kv.second.node;
         const float q_value = (child->visits == 0) ? fpu_value : node_value(*child);
         const float action_value =
             (child->state.current_player == node.state.current_player) ? q_value : -q_value;
-        const float u_score = c_puct_ * child->prior * sqrt_sum / (1.0f + child->visits);
+        const float u_score = c_puct_ * kv.second.prior * sqrt_sum / (1.0f + child->visits);
         const float score = action_value + u_score;
         if (score > best_score) {
             best_score = score;
@@ -327,14 +334,17 @@ std::pair<Action, AlphaZeroBitAgent::Node*> AlphaZeroBitAgent::select_child(Node
     return {action, best_child};
 }
 
-void AlphaZeroBitAgent::backpropagate(Node* node, float value) {
-    while (node) {
+void AlphaZeroBitAgent::backpropagate(const std::vector<Node*>& path, float value) {
+    for (int i = static_cast<int>(path.size()) - 1; i >= 0; --i) {
+        Node* node = path[i];
         node->visits += 1;
         node->value_sum += value;
-        if (node->parent && node->parent->state.current_player != node->state.current_player) {
-            value = -value;
+        if (i > 0) {
+            Node* parent = path[i - 1];
+            if (parent->state.current_player != node->state.current_player) {
+                value = -value;
+            }
         }
-        node = node->parent;
     }
 }
 
@@ -346,7 +356,7 @@ Action AlphaZeroBitAgent::best_action(const Node& root, float temperature) {
 
     for (const auto& kv : root.children) {
         actions.push_back(kv.first);
-        weights.push_back(static_cast<float>(kv.second->visits));
+        weights.push_back(static_cast<float>(kv.second.node->visits));
     }
 
     if (actions.empty()) return Action{-1, -1, -1};
@@ -395,37 +405,44 @@ Action AlphaZeroBitAgent::act(const BitBoardEnv& env, bool return_probs, float t
     last_visit_counts_.clear();
     inference_cache_.clear();  // Fresh cache per move — avoids stale entries
     pending_cache_.clear();
-    Node root;
-    root.state = NodeState{
+    dag_table_.clear();
+
+    Node* root = new Node();
+    root->state = NodeState{
         env.h_edges(), env.v_edges(), env.boxes_p1(), env.boxes_p2(),
         env.current_player(), env.done(), env.score_p1(), env.score_p2()
     };
+    dag_table_[state_key(root->state)] = root;
 
     int completed = 0;
     int attempts = 0;
     const int max_attempts = n_simulations_ * 20;
     while (completed < n_simulations_ && attempts < max_attempts) {
         attempts++;
-        Node* node = &root;
+        Node* node = root;
+        std::vector<Node*> search_path;
+        search_path.push_back(node);
+
         while (!node->children.empty()) {
             auto sel = select_child(*node);
             node = sel.second;
+            search_path.push_back(node);
         }
         float value = 0.0f;
-        if (!try_expand(*node, node == &root, value)) {
+        if (!try_expand(*node, node == root, value)) {
             continue;
         }
-        backpropagate(node, value);
+        backpropagate(search_path, value);
         completed++;
     }
 
-    for (const auto& kv : root.children) {
-        last_visit_counts_[kv.first] = kv.second->visits;
+    for (const auto& kv : root->children) {
+        last_visit_counts_[kv.first] = kv.second.node->visits;
     }
 
     Action chosen;
-    if (root.children.empty()) {
-        auto actions = legal_actions(root.state);
+    if (root->children.empty()) {
+        auto actions = legal_actions(root->state);
         if (actions.empty()) {
             chosen = Action{-1, -1, -1};
         } else {
@@ -433,18 +450,15 @@ Action AlphaZeroBitAgent::act(const BitBoardEnv& env, bool return_probs, float t
             chosen = actions[dist(rng_)];
         }
     } else {
-        chosen = best_action(root, temperature);
+        chosen = best_action(*root, temperature);
     }
 
-    // Cleanup tree
-    std::vector<Node*> stack;
-    stack.push_back(&root);
-    while (!stack.empty()) {
-        Node* cur = stack.back();
-        stack.pop_back();
-        for (auto& kv : cur->children) stack.push_back(kv.second);
-        if (cur != &root) delete cur;
+    // Cleanup DAG
+    for (auto& kv : dag_table_) {
+        delete kv.second;
     }
+    dag_table_.clear();
+
     return chosen;
 }
 
