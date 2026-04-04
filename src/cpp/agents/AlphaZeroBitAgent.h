@@ -17,11 +17,12 @@ struct PolicyValue {
     float value = 0.0f;         // in [-1, 1]
 };
 
-/// Abstract interface for policy-value function.
-class PolicyValueFn {
+/// Abstract interface for async policy-value function.
+class AsyncPolicyValueFn {
 public:
-    virtual ~PolicyValueFn() = default;
-    virtual PolicyValue operator()(const StateSnapshot& state) = 0;
+    virtual ~AsyncPolicyValueFn() = default;
+    virtual uint64_t submit(const StateSnapshot& state) = 0;
+    virtual bool try_get(uint64_t request_id, PolicyValue& out) = 0;
 };
 
 // ── 128-bit cache key ──────────────────────────────────────────────────
@@ -50,7 +51,7 @@ using InferenceCache = std::unordered_map<StateKey128, PolicyValue, StateKey128H
 class AlphaZeroBitAgent {
 public:
     AlphaZeroBitAgent(const BitBoardEnv& env,
-                      PolicyValueFn& model,
+                      AsyncPolicyValueFn& model,
                       int n_simulations = 400,
                       float c_puct = 1.5f,
                       float dirichlet_alpha = 0.3f,
@@ -82,6 +83,8 @@ private:
         int visits = 0;
         float value_sum = 0.0f;
         float prior = 0.0f;
+        enum class Status { kUnexpanded, kPending, kExpanded } status = Status::kUnexpanded;
+        uint64_t pending_id = 0;
     };
 
     float node_value(const Node& node) const {
@@ -110,7 +113,7 @@ private:
     NodeState apply_action(const NodeState& state, const Action& action) const;
     std::vector<Action> legal_actions(const NodeState& state) const;
     std::vector<float> build_features(const NodeState& state) const;
-    float evaluate_and_expand(Node& node, bool is_root);
+    bool try_expand(Node& node, bool is_root, float& out_value);
     std::pair<Action, Node*> select_child(Node& node);
     void backpropagate(Node* node, float value);
     Action best_action(const Node& root, float temperature);
@@ -131,13 +134,14 @@ private:
     std::vector<std::pair<int, int>> box_h_bits_;
     std::vector<std::pair<int, int>> box_v_bits_;
 
-    PolicyValueFn& model_;
+    AsyncPolicyValueFn& model_;
     std::mt19937 rng_;
     std::unordered_map<uint32_t, int> last_visit_counts_;
 
     // Inference cache: board state → (policy, value)
     // Cleared at the start of each act() call.
     InferenceCache inference_cache_;
+    std::unordered_map<StateKey128, uint64_t, StateKey128Hasher> pending_cache_;
 };
 
 }  // namespace azb

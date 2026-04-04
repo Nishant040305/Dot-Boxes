@@ -21,15 +21,20 @@ AlphaZeroTrainer::AlphaZeroTrainer(const TrainConfig& cfg)
     }
     model_->to(device_);
 
-    const auto path = model_path();
-    if (std::filesystem::exists(path)) {
-        try {
-            torch::load(model_, path);
-            model_->to(device_);
-            std::cout << "[Trainer] Loaded model from " << path << std::endl;
-        } catch (const std::exception& e) {
-            std::cerr << "[Trainer] Failed to load model: " << e.what()
-                      << ", starting fresh." << std::endl;
+    if (cfg_.resume) {
+        const auto path = model_path();
+        if (std::filesystem::exists(path)) {
+            try {
+                torch::load(model_, path);
+                model_->to(device_);
+                std::cout << "[Trainer] Loaded model from " << path << std::endl;
+            } catch (const std::exception& e) {
+                std::cerr << "[Trainer] Failed to load model: " << e.what()
+                          << ", starting fresh." << std::endl;
+            }
+        } else {
+            std::cerr << "[Trainer] Resume requested but no model found at "
+                      << path << ". Starting fresh." << std::endl;
         }
     }
 }
@@ -70,15 +75,21 @@ void AlphaZeroTrainer::train() {
     int start_phase_idx = 0;
     int start_iter = 0;
     std::string state_path = cfg_.model_dir + "/train_state_" + std::to_string(cfg_.rows) + "x" + std::to_string(cfg_.cols) + ".txt";
+    std::string optim_path = cfg_.model_dir + "/optimizer_state_" + std::to_string(cfg_.rows) + "x" + std::to_string(cfg_.cols) + ".pt";
+    std::string replay_path = cfg_.model_dir + "/replay_buffer_" + std::to_string(cfg_.rows) + "x" + std::to_string(cfg_.cols) + ".pt";
 
     if (cfg_.resume) {
         if (std::filesystem::exists(state_path)) {
             std::ifstream ifs(state_path);
             if (ifs >> start_phase_idx >> start_iter) {
                 std::cout << "[Trainer] Resuming from phase " << start_phase_idx << ", iter " << start_iter << std::endl;
+            } else {
+                std::cerr << "[Trainer] Failed to parse train state. Starting fresh." << std::endl;
+                start_phase_idx = 0;
+                start_iter = 0;
             }
         } else {
-             std::cout << "[Trainer] No train state found to resume. Starting fresh." << std::endl;
+            std::cout << "[Trainer] No train state found to resume. Starting fresh." << std::endl;
         }
     }
 
@@ -86,6 +97,29 @@ void AlphaZeroTrainer::train() {
     // Note: We'll update the LR for each phase
     torch::optim::Adam optimizer(model_->parameters(),
                                  torch::optim::AdamOptions(cfg_.phases.empty() ? cfg_.learning_rate : cfg_.phases[0].lr));
+    if (cfg_.resume && std::filesystem::exists(optim_path)) {
+        try {
+            torch::load(optimizer, optim_path);
+            std::cout << "[Trainer] Loaded optimizer state from " << optim_path << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "[Trainer] Failed to load optimizer state: " << e.what()
+                      << ", continuing with fresh optimizer." << std::endl;
+        }
+    } else if (cfg_.resume) {
+        std::cout << "[Trainer] No optimizer state found to resume." << std::endl;
+    }
+
+    if (cfg_.resume && std::filesystem::exists(replay_path)) {
+        if (replay_buffer_.load(replay_path, cfg_.buffer_capacity)) {
+            std::cout << "[Trainer] Loaded replay buffer (" << replay_buffer_.size()
+                      << " samples, capacity " << replay_buffer_.capacity() << ") from "
+                      << replay_path << std::endl;
+        } else {
+            std::cerr << "[Trainer] Failed to load replay buffer. Starting fresh." << std::endl;
+        }
+    } else if (cfg_.resume) {
+        std::cout << "[Trainer] No replay buffer found to resume." << std::endl;
+    }
 
     for (size_t p_idx = start_phase_idx; p_idx < cfg_.phases.size(); p_idx++) {
         const auto& phase = cfg_.phases[p_idx];
@@ -217,6 +251,14 @@ void AlphaZeroTrainer::train() {
             std::ofstream ofs(state_path);
             ofs << saved_phase << " " << saved_iter << "\n";
             ofs.close();
+            try {
+                torch::save(optimizer, optim_path);
+            } catch (const std::exception& e) {
+                std::cerr << "[Trainer] Failed to save optimizer state: " << e.what() << std::endl;
+            }
+            if (!replay_buffer_.save(replay_path)) {
+                std::cerr << "[Trainer] Failed to save replay buffer." << std::endl;
+            }
 
             std::cout << "  Models saved to " << iter_path << " and " << model_path() << "\n  State saved." << std::endl;
         }

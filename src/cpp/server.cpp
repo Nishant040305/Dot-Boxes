@@ -16,7 +16,9 @@
 ///   ./alphazero_server --rows 3 --cols 3 --model path.pt --sims 400
 
 #include <iostream>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 
 #include <torch/torch.h>
 #include "AlphaZeroBitAgent.h"
@@ -67,24 +69,40 @@ private:
 
 // ─── NN Policy for the server ────────────────────────────────────
 
-class ServerNNPolicy : public PolicyValueFn {
+class ServerNNPolicy : public AsyncPolicyValueFn {
 public:
     ServerNNPolicy(AlphaZeroBitNet& model, torch::Device device)
         : model_(model), device_(device) {}
 
-    PolicyValue operator()(const StateSnapshot& state) override {
+    uint64_t submit(const StateSnapshot& state) override {
         auto feat = model_->preprocess(state).unsqueeze(0).to(device_);
         torch::NoGradGuard no_grad;
         auto [logits, value] = model_->forward(feat);
         auto probs = torch::softmax(logits, 1).cpu();
         std::vector<float> policy(probs[0].data_ptr<float>(),
                                   probs[0].data_ptr<float>() + probs[0].numel());
-        return {policy, value.item<float>()};
+        PolicyValue pv{std::move(policy), value.item<float>()};
+        std::lock_guard<std::mutex> lock(mu_);
+        const uint64_t req_id = next_id_++;
+        ready_[req_id] = std::move(pv);
+        return req_id;
+    }
+
+    bool try_get(uint64_t request_id, PolicyValue& out) override {
+        std::lock_guard<std::mutex> lock(mu_);
+        auto it = ready_.find(request_id);
+        if (it == ready_.end()) return false;
+        out = std::move(it->second);
+        ready_.erase(it);
+        return true;
     }
 
 private:
     AlphaZeroBitNet& model_;
     torch::Device device_;
+    std::unordered_map<uint64_t, PolicyValue> ready_;
+    uint64_t next_id_ = 1;
+    std::mutex mu_;
 };
 
 }  // namespace azb

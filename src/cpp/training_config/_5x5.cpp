@@ -31,7 +31,7 @@ static azb::TrainConfig make_5x5_config() {
 
     cfg.keep_checkpoints = 5;
     cfg.model_name       = "alphazero_5x5";
-    cfg.model_dir        = "../models/5x5";
+    cfg.model_dir        = "../models/_5x5";
 
     cfg.phases = {
         { "Bootstrap",    15, 200, 100, 10, 0.002f,  10, 1.0f, 0.30f },

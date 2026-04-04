@@ -32,13 +32,13 @@ static azb::TrainConfig make_4x3_config() {
     cfg.buffer_grow       = 5000;
 
     // ── Inference ────────────────────────────────────────────
-    cfg.num_workers           = 64;
+    cfg.num_workers           = 16;
     cfg.max_inference_batch   = 128;
 
     // ── Checkpoints ──────────────────────────────────────────
     cfg.keep_checkpoints = 5;
     cfg.model_name       = "alphazero_4x3";
-    cfg.model_dir        = "../models/4x3";
+    cfg.model_dir        = "../models/_4x3";
 
     // ── Phases ───────────────────────────────────────────────
     cfg.phases = {

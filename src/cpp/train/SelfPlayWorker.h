@@ -18,15 +18,21 @@
 
 namespace azb {
 
-/// PolicyValueFn implementation that delegates to the InferenceServer.
-class RemotePolicy : public PolicyValueFn {
+/// Async policy-value implementation that delegates to the InferenceServer.
+class RemotePolicy : public AsyncPolicyValueFn {
 public:
     RemotePolicy(InferenceServer& server, int worker_id)
         : server_(server), worker_id_(worker_id) {}
 
-    PolicyValue operator()(const StateSnapshot& state) override {
-        auto resp = server_.infer(worker_id_, state);
-        return {std::move(resp.policy), resp.value};
+    uint64_t submit(const StateSnapshot& state) override {
+        return server_.submit(worker_id_, state);
+    }
+
+    bool try_get(uint64_t request_id, PolicyValue& out) override {
+        InferenceResponse resp;
+        if (!server_.try_get(request_id, resp)) return false;
+        out = {std::move(resp.policy), resp.value};
+        return true;
     }
 
 private:

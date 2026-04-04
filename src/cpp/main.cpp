@@ -27,7 +27,7 @@
 // Include predefined config builder functions
 #include "training_config/_4x3.cpp"
 #include "training_config/_5x5.cpp"
-#include "training_config/_8x7.cpp"
+#include "training_config/_7x8.cpp"
 
 static void print_help() {
     std::cout << "AlphaZero Dots-and-Boxes Trainer (C++/LibTorch)\n"
@@ -72,6 +72,10 @@ int main(int argc, char* argv[]) {
             phased = true;
             continue;
         }
+        if (arg == "--resume") {
+            cfg.resume = true;
+            continue;
+        }
         if (i + 1 >= argc) {
             std::cerr << "Missing value for " << arg << std::endl;
             return 1;
@@ -79,13 +83,17 @@ int main(int argc, char* argv[]) {
         std::string val = argv[++i];
 
         if      (arg == "--config") {
-            if (val == "4x3") cfg = make_4x3_config();
-            else if (val == "5x5") cfg = make_5x5_config();
-            else if (val == "8x7") cfg = make_8x7_config();
+            const bool resume_flag = cfg.resume;
+            azb::TrainConfig loaded;
+            if (val == "4x3") loaded = make_4x3_config();
+            else if (val == "5x5") loaded = make_5x5_config();
+            else if (val == "7x8") loaded = make_7x8_config();
             else {
                 std::cerr << "Unknown config: " << val << std::endl;
                 return 1;
             }
+            loaded.resume = resume_flag;
+            cfg = std::move(loaded);
             cols_set = true;
         }
         else if (arg == "--rows")      cfg.rows = std::stoi(val);
@@ -102,7 +110,6 @@ int main(int argc, char* argv[]) {
         else if (arg == "--model-dir") cfg.model_dir = val;
         else if (arg == "--grow")      cfg.buffer_grow = std::stoi(val);
         else if (arg == "--keep")      cfg.keep_checkpoints = std::stoi(val);
-        else if (arg == "--resume")    { cfg.resume = true; i--; }
         else {
             std::cerr << "Unknown option: " << arg << std::endl;
             return 1;

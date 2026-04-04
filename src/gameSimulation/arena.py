@@ -59,7 +59,7 @@ def _find_model_path(filename):
         os.path.join(_src_dir, 'models', filename),
     ]
     # Auto-detect board size subdirectory from filename (e.g. alphazero_4x3.pt -> 4x3/)
-    m = re.search(r'(\d+x\d+)', filename)
+    m = re.search(r'_(\d+x\d+)', filename)
     if m:
         board = m.group(1)
         candidates.append(os.path.join(_src_dir, 'cpp', 'models', board, filename))

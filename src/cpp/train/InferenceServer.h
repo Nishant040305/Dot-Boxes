@@ -3,11 +3,13 @@
 /// Worker threads send StateSnapshots, this thread batches them and runs the model.
 
 #include <atomic>
+#include <cstdint>
 #include <condition_variable>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <unordered_map>
 #include <vector>
 
 #include <torch/torch.h>
@@ -23,6 +25,7 @@ struct ShutdownException : public std::exception {
 
 /// Request from a worker to the inference server.
 struct InferenceRequest {
+    uint64_t request_id = 0;
     int worker_id = -1;
     StateSnapshot state;
 };
@@ -33,46 +36,35 @@ struct InferenceResponse {
     float value = 0.0f;
 };
 
-/// Per-worker synchronization slot (non-copyable, non-movable).
-struct WorkerSlot {
-    std::mutex mu;
-    std::condition_variable cv;
-    std::atomic<bool> ready{false};
-    InferenceResponse response;
-};
-
 /// Batched inference server — runs model on a dedicated thread.
 class InferenceServer {
 public:
     InferenceServer(AlphaZeroBitNet& model, torch::Device device, int num_workers,
                     int max_batch_size = 16)
         : model_(model), device_(device), max_batch_(max_batch_size) {
-        slots_.reserve(num_workers);
-        for (int i = 0; i < num_workers; i++) {
-            slots_.push_back(std::make_unique<WorkerSlot>());
-        }
+        (void)num_workers;
     }
 
     /// Submit a request (called by worker threads). Throws ShutdownException on stop.
-    InferenceResponse infer(int worker_id, const StateSnapshot& state) {
+    uint64_t submit(int worker_id, const StateSnapshot& state) {
         if (stopped_.load()) throw ShutdownException();
+        const uint64_t request_id = next_id_.fetch_add(1, std::memory_order_relaxed);
         {
             std::lock_guard<std::mutex> lock(req_mu_);
-            requests_.push({worker_id, state});
+            requests_.push({request_id, worker_id, state});
         }
         req_cv_.notify_one();
+        return request_id;
+    }
 
-        // Wait for response or shutdown
-        auto& slot = *slots_[worker_id];
-        std::unique_lock<std::mutex> lock(slot.mu);
-        slot.cv.wait(lock, [&] { return slot.ready.load() || stopped_.load(); });
-
-        if (!slot.ready.load()) {
-            // Woken by stop(), no valid response
-            throw ShutdownException();
-        }
-        slot.ready.store(false);
-        return std::move(slot.response);
+    /// Try to fetch a response without blocking. Returns true if ready.
+    bool try_get(uint64_t request_id, InferenceResponse& out) {
+        std::lock_guard<std::mutex> lock(resp_mu_);
+        auto it = responses_.find(request_id);
+        if (it == responses_.end()) return false;
+        out = std::move(it->second);
+        responses_.erase(it);
+        return true;
     }
 
     /// Run the inference loop (call from dedicated thread). Blocks until stop() is called.
@@ -95,7 +87,7 @@ public:
             // This is critical: without this, we process batches of size 1,
             // wasting parallelism. With this, workers have time to submit
             // their requests before we run inference.
-            auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(100);
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(200);
             while (static_cast<int>(batch.size()) < max_batch_) {
                 std::unique_lock<std::mutex> lock(req_mu_);
                 if (requests_.empty()) {
@@ -110,7 +102,9 @@ public:
                     batch.push_back(std::move(requests_.front()));
                     requests_.pop();
                 }
-                if (std::chrono::steady_clock::now() >= deadline) break;
+                if (std::chrono::steady_clock::now() >= deadline) {
+                    break;
+                };
             }
 
             if (batch.empty()) continue;
@@ -121,10 +115,6 @@ public:
     void stop() {
         stopped_.store(true);
         req_cv_.notify_all();
-        // Wake workers so they re-check stopped_ in their wait predicate
-        for (auto& slot : slots_) {
-            slot->cv.notify_all();
-        }
     }
 
     /// Reload model weights from file.
@@ -167,13 +157,9 @@ private:
                                       prob_acc.data_ptr<float>() + prob_acc.numel());
             float value = vals[i].item<float>();
 
-            auto& slot = *slots_[wid];
-            {
-                std::lock_guard<std::mutex> lock(slot.mu);
-                slot.response = {std::move(policy), value};
-                slot.ready.store(true);
-            }
-            slot.cv.notify_one();
+            (void)wid;
+            std::lock_guard<std::mutex> lock(resp_mu_);
+            responses_[batch[i].request_id] = {std::move(policy), value};
         }
     }
 
@@ -186,8 +172,10 @@ private:
     std::mutex req_mu_;
     std::condition_variable req_cv_;
 
-    // Per-worker response slots (unique_ptr because mutex/cv are non-movable)
-    std::vector<std::unique_ptr<WorkerSlot>> slots_;
+    // Completed responses
+    std::unordered_map<uint64_t, InferenceResponse> responses_;
+    std::mutex resp_mu_;
+    std::atomic<uint64_t> next_id_{1};
 
     std::atomic<bool> stopped_{false};
 };

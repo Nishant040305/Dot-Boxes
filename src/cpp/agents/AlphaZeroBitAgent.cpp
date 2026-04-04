@@ -8,7 +8,7 @@
 namespace azb {
 
 AlphaZeroBitAgent::AlphaZeroBitAgent(const BitBoardEnv& env,
-                                     PolicyValueFn& model,
+                                     AsyncPolicyValueFn& model,
                                      int n_simulations,
                                      float c_puct,
                                      float dirichlet_alpha,
@@ -170,42 +170,65 @@ AlphaZeroBitAgent::NodeState AlphaZeroBitAgent::apply_action(const NodeState& st
     return next;
 }
 
-float AlphaZeroBitAgent::evaluate_and_expand(Node& node, bool is_root) {
+bool AlphaZeroBitAgent::try_expand(Node& node, bool is_root, float& out_value) {
     if (node.state.done) {
-        if (node.state.score_p1 == node.state.score_p2) return 0.0f;
+        if (node.state.score_p1 == node.state.score_p2) {
+            out_value = 0.0f;
+            return true;
+        }
         const int my_score = (node.state.current_player == 1) ? node.state.score_p1
                                                               : node.state.score_p2;
         const int opp_score = (node.state.current_player == 1) ? node.state.score_p2
                                                                : node.state.score_p1;
-        return (my_score > opp_score) ? 1.0f : -1.0f;
+        out_value = (my_score > opp_score) ? 1.0f : -1.0f;
+        return true;
     }
 
-    PolicyValue pv;
-    if (is_root) {
-        // Always call model at root to allow Dirichlet noise injection
-        pv = model_(StateSnapshot{
-            node.state.h_edges, node.state.v_edges,
-            node.state.boxes_p1, node.state.boxes_p2,
-            node.state.current_player, node.state.done,
-            node.state.score_p1, node.state.score_p2,
+    auto make_snapshot = [&](const NodeState& s) -> StateSnapshot {
+        return StateSnapshot{
+            s.h_edges, s.v_edges,
+            s.boxes_p1, s.boxes_p2,
+            s.current_player, s.done,
+            s.score_p1, s.score_p2,
             Action{-1, -1, -1},
-        });
-    } else {
-        // Check inference cache — skip redundant NN calls for repeated states
+        };
+    };
+
+    PolicyValue pv;
+    if (node.status == Node::Status::kPending) {
+        if (!model_.try_get(node.pending_id, pv)) {
+            return false;
+        }
+        const StateKey128 key = state_key(node.state);
+        inference_cache_[key] = pv;
+        pending_cache_.erase(key);
+        node.pending_id = 0;
+        node.status = Node::Status::kUnexpanded;
+    }
+
+    if (node.status == Node::Status::kUnexpanded) {
         const StateKey128 key = state_key(node.state);
         auto it = inference_cache_.find(key);
         if (it != inference_cache_.end()) {
             pv = it->second;
         } else {
-            pv = model_(StateSnapshot{
-                node.state.h_edges, node.state.v_edges,
-                node.state.boxes_p1, node.state.boxes_p2,
-                node.state.current_player, node.state.done,
-                node.state.score_p1, node.state.score_p2,
-                Action{-1, -1, -1},
-            });
-            inference_cache_.emplace(key, pv);
+            auto pit = pending_cache_.find(key);
+            if (pit != pending_cache_.end()) {
+                node.pending_id = pit->second;
+                node.status = Node::Status::kPending;
+                return false;
+            }
+            const uint64_t req_id = model_.submit(make_snapshot(node.state));
+            pending_cache_[key] = req_id;
+            node.pending_id = req_id;
+            node.status = Node::Status::kPending;
+            return false;
         }
+    }
+
+    if (node.status == Node::Status::kExpanded) {
+        out_value = node_value(node);
+        return true;
     }
 
     if (static_cast<int>(pv.policy.size()) != action_size_) {
@@ -213,7 +236,11 @@ float AlphaZeroBitAgent::evaluate_and_expand(Node& node, bool is_root) {
     }
 
     const std::vector<Action> actions = legal_actions(node.state);
-    if (actions.empty()) return pv.value;
+    if (actions.empty()) {
+        out_value = pv.value;
+        node.status = Node::Status::kExpanded;
+        return true;
+    }
 
     std::vector<float> priors;
     priors.reserve(actions.size());
@@ -254,7 +281,9 @@ float AlphaZeroBitAgent::evaluate_and_expand(Node& node, bool is_root) {
         node.children[action_to_index(actions[i])] = child;
     }
 
-    return pv.value;
+    node.status = Node::Status::kExpanded;
+    out_value = pv.value;
+    return true;
 }
 
 std::pair<Action, AlphaZeroBitAgent::Node*> AlphaZeroBitAgent::select_child(Node& node) {
@@ -365,28 +394,47 @@ Action AlphaZeroBitAgent::best_action(const Node& root, float temperature) {
 Action AlphaZeroBitAgent::act(const BitBoardEnv& env, bool return_probs, float temperature) {
     last_visit_counts_.clear();
     inference_cache_.clear();  // Fresh cache per move — avoids stale entries
+    pending_cache_.clear();
     Node root;
     root.state = NodeState{
         env.h_edges(), env.v_edges(), env.boxes_p1(), env.boxes_p2(),
         env.current_player(), env.done(), env.score_p1(), env.score_p2()
     };
 
-    evaluate_and_expand(root, true);
-    for (int i = 0; i < n_simulations_; i++) {
+    int completed = 0;
+    int attempts = 0;
+    const int max_attempts = n_simulations_ * 20;
+    while (completed < n_simulations_ && attempts < max_attempts) {
+        attempts++;
         Node* node = &root;
         while (!node->children.empty()) {
             auto sel = select_child(*node);
             node = sel.second;
         }
-        const float value = evaluate_and_expand(*node, false);
+        float value = 0.0f;
+        if (!try_expand(*node, node == &root, value)) {
+            continue;
+        }
         backpropagate(node, value);
+        completed++;
     }
 
     for (const auto& kv : root.children) {
         last_visit_counts_[kv.first] = kv.second->visits;
     }
 
-    Action chosen = best_action(root, temperature);
+    Action chosen;
+    if (root.children.empty()) {
+        auto actions = legal_actions(root.state);
+        if (actions.empty()) {
+            chosen = Action{-1, -1, -1};
+        } else {
+            std::uniform_int_distribution<size_t> dist(0, actions.size() - 1);
+            chosen = actions[dist(rng_)];
+        }
+    } else {
+        chosen = best_action(root, temperature);
+    }
 
     // Cleanup tree
     std::vector<Node*> stack;
