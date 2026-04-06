@@ -40,6 +40,9 @@ static azb::TrainConfig make_4x3_config() {
     cfg.model_name       = "alphazero_4x3";
     cfg.model_dir        = "../models/_4x3";
 
+    // __ Evaluation Matrix ____________________________________
+    cfg.value_eval = azb::ValueEval::kScoreDiffTanh;
+    
     // ── Phases ───────────────────────────────────────────────
     cfg.phases = {
 

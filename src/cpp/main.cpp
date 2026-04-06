@@ -46,6 +46,9 @@ static void print_help() {
               << "  --blocks N        Residual blocks (default: 6)\n"
                << "  --model-dir PATH  Model directory (default: ../models)\n"
                << "  --config NAME     Load predefined config (4x3, 5x5, 8x7)\n"
+               << "  --value-eval V    Value target eval (winloss, score, score_sqrt, score_tanh)\n"
+               << "  --dag            Enable DAG transpositions (default: on)\n"
+               << "  --no-dag         Disable DAG (use tree only)\n"
                << "  --help            Show this help\n"
               << "  --phased          Use phased training (default: false)\n"
               << "  --resume          Resume from last saved iteration state\n";
@@ -72,6 +75,14 @@ int main(int argc, char* argv[]) {
             phased = true;
             continue;
         }
+        if (arg == "--dag") {
+            cfg.use_dag = true;
+            continue;
+        }
+        if (arg == "--no-dag") {
+            cfg.use_dag = false;
+            continue;
+        }
         if (arg == "--resume") {
             cfg.resume = true;
             continue;
@@ -84,6 +95,7 @@ int main(int argc, char* argv[]) {
 
         if      (arg == "--config") {
             const bool resume_flag = cfg.resume;
+            const bool use_dag_flag = cfg.use_dag;
             azb::TrainConfig loaded;
             if (val == "4x3") loaded = make_4x3_config();
             else if (val == "5x5") loaded = make_5x5_config();
@@ -93,6 +105,7 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
             loaded.resume = resume_flag;
+            loaded.use_dag = use_dag_flag;
             cfg = std::move(loaded);
             cols_set = true;
         }
@@ -108,6 +121,14 @@ int main(int argc, char* argv[]) {
         else if (arg == "--hidden")    cfg.hidden_size = std::stoi(val);
         else if (arg == "--blocks")    cfg.num_res_blocks = std::stoi(val);
         else if (arg == "--model-dir") cfg.model_dir = val;
+        else if (arg == "--value-eval") {
+            azb::ValueEval eval;
+            if (!azb::parse_value_eval(val, eval)) {
+                std::cerr << "Unknown value eval: " << val << std::endl;
+                return 1;
+            }
+            cfg.value_eval = eval;
+        }
         else if (arg == "--grow")      cfg.buffer_grow = std::stoi(val);
         else if (arg == "--keep")      cfg.keep_checkpoints = std::stoi(val);
         else {
@@ -128,6 +149,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Mode: Phased Training (Bootstrap -> Refinement -> Mastery)" << std::endl;
     }
     std::cout << "Model: hidden=" << cfg.hidden_size << ", blocks=" << cfg.num_res_blocks << std::endl;
+    std::cout << "Value eval: " << azb::value_eval_name(cfg.value_eval) << std::endl;
 
     azb::AlphaZeroTrainer trainer(cfg);
     trainer.train();

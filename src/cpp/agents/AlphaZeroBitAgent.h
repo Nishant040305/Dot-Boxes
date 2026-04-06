@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "BitBoardEnv.h"
+#include "ValueEval.h"
 
 namespace azb {
 
@@ -57,7 +58,9 @@ public:
                       float dirichlet_alpha = 0.3f,
                       float dirichlet_epsilon = 0.25f,
                       float fpu_reduction = 0.25f,
-                      bool add_noise = true);
+                      bool add_noise = true,
+                      bool use_dag = true,
+                      ValueEval value_eval = ValueEval::kWinLoss);
 
     Action act(const BitBoardEnv& env, bool return_probs = false, float temperature = 1e-3f);
     const std::unordered_map<uint32_t, int>& last_visit_counts() const {
@@ -132,6 +135,9 @@ private:
     float dirichlet_epsilon_;
     float fpu_reduction_;
     bool add_noise_;
+    bool use_dag_;
+    ValueEval value_eval_;
+    int total_boxes_ = 0;
 
     std::vector<std::pair<int, int>> box_h_bits_;
     std::vector<std::pair<int, int>> box_v_bits_;
@@ -147,6 +153,8 @@ private:
     
     // DAG Transposition Table: board state → Node* (cleared per act)
     std::unordered_map<StateKey128, Node*, StateKey128Hasher> dag_table_;
+
+    std::vector<Node*> owned_nodes_;
 };
 
 }  // namespace azb

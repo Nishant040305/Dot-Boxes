@@ -56,7 +56,7 @@ public:
         BitBoardEnv env(cfg_.rows, cfg_.cols);
         AlphaZeroBitAgent agent(env, remote, phase_.mcts_sims, cfg_.c_puct,
                                 cfg_.dirichlet_alpha, cfg_.dirichlet_epsilon,
-                                cfg_.fpu_reduction, true);
+                                cfg_.fpu_reduction, true, cfg_.use_dag);
 
         while (!stop_.load()) {
             env.reset();
@@ -87,10 +87,7 @@ public:
 
             if (stop_.load()) break;
 
-            // Determine result
-            float result = 0.0f;
-            if (env.score_p1() > env.score_p2())      result = 1.0f;
-            else if (env.score_p2() > env.score_p1()) result = -1.0f;
+            const int total_boxes = cfg_.rows * cfg_.cols;
 
             // Convert game history to training samples
             const int action_size = env.action_size();
@@ -116,11 +113,11 @@ public:
                     }
                 }
 
-                float z = (item.player == 1) ? result : -result;
-                // z must be exactly ±1 or 0 — never a raw score difference.
-                // The value head uses tanh output in [-1,+1]; training against
-                // unnormalized scores produces enormous MSE gradients and makes
-                // the value head saturate without learning game structure.
+                float z = value_from_scores(cfg_.value_eval, item.player,
+                                            env.score_p1(), env.score_p2(),
+                                            total_boxes);
+                // Value targets must stay within [-1,+1]. For score-based
+                // evaluation we normalize by total boxes to preserve scale.
                 samples.push_back({std::move(state_tensor), std::move(policy_tensor),
                                    std::move(legal_mask), z});
 

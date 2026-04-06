@@ -14,7 +14,9 @@ AlphaZeroBitAgent::AlphaZeroBitAgent(const BitBoardEnv& env,
                                      float dirichlet_alpha,
                                      float dirichlet_epsilon,
                                      float fpu_reduction,
-                                     bool add_noise)
+                                     bool add_noise,
+                                     bool use_dag,
+                                     ValueEval value_eval)
     : rows_(env.rows()),
       cols_(env.cols()),
       n_h_edges_((rows_ + 1) * cols_),
@@ -26,6 +28,9 @@ AlphaZeroBitAgent::AlphaZeroBitAgent(const BitBoardEnv& env,
       dirichlet_epsilon_(dirichlet_epsilon),
       fpu_reduction_(fpu_reduction),
       add_noise_(add_noise),
+      use_dag_(use_dag),
+      value_eval_(value_eval),
+      total_boxes_(env.total_boxes()),
       model_(model),
       rng_(std::random_device{}()) {
     precompute_edge_bits();
@@ -172,15 +177,9 @@ AlphaZeroBitAgent::NodeState AlphaZeroBitAgent::apply_action(const NodeState& st
 
 bool AlphaZeroBitAgent::try_expand(Node& node, bool is_root, float& out_value) {
     if (node.state.done) {
-        if (node.state.score_p1 == node.state.score_p2) {
-            out_value = 0.0f;
-            return true;
-        }
-        const int my_score = (node.state.current_player == 1) ? node.state.score_p1
-                                                              : node.state.score_p2;
-        const int opp_score = (node.state.current_player == 1) ? node.state.score_p2
-                                                               : node.state.score_p1;
-        out_value = (my_score > opp_score) ? 1.0f : -1.0f;
+        out_value = value_from_scores(value_eval_, node.state.current_player,
+                                      node.state.score_p1, node.state.score_p2,
+                                      total_boxes_);
         return true;
     }
 
@@ -275,15 +274,21 @@ bool AlphaZeroBitAgent::try_expand(Node& node, bool is_root, float& out_value) {
 
     for (size_t i = 0; i < actions.size(); i++) {
         NodeState next_state = apply_action(node.state, actions[i]);
-        StateKey128 next_key = state_key(next_state);
         Node* child = nullptr;
-        auto it = dag_table_.find(next_key);
-        if (it != dag_table_.end()) {
-            child = it->second;
+        if (use_dag_) {
+            StateKey128 next_key = state_key(next_state);
+            auto it = dag_table_.find(next_key);
+            if (it != dag_table_.end()) {
+                child = it->second;
+            } else {
+                child = new Node();
+                child->state = next_state;
+                dag_table_[next_key] = child;
+            }
         } else {
             child = new Node();
             child->state = next_state;
-            dag_table_[next_key] = child;
+            owned_nodes_.push_back(child);
         }
         node.children[action_to_index(actions[i])] = {child, priors[i]};
     }
@@ -406,13 +411,18 @@ Action AlphaZeroBitAgent::act(const BitBoardEnv& env, bool return_probs, float t
     inference_cache_.clear();  // Fresh cache per move — avoids stale entries
     pending_cache_.clear();
     dag_table_.clear();
+    owned_nodes_.clear();
 
     Node* root = new Node();
     root->state = NodeState{
         env.h_edges(), env.v_edges(), env.boxes_p1(), env.boxes_p2(),
         env.current_player(), env.done(), env.score_p1(), env.score_p2()
     };
-    dag_table_[state_key(root->state)] = root;
+    if (use_dag_) {
+        dag_table_[state_key(root->state)] = root;
+    } else {
+        owned_nodes_.push_back(root);
+    }
 
     int completed = 0;
     int attempts = 0;
@@ -453,11 +463,18 @@ Action AlphaZeroBitAgent::act(const BitBoardEnv& env, bool return_probs, float t
         chosen = best_action(*root, temperature);
     }
 
-    // Cleanup DAG
-    for (auto& kv : dag_table_) {
-        delete kv.second;
+    if (use_dag_) {
+        // Cleanup DAG
+        for (auto& kv : dag_table_) {
+            delete kv.second;
+        }
+        dag_table_.clear();
+    } else {
+        for (Node* node : owned_nodes_) {
+            delete node;
+        }
+        owned_nodes_.clear();
     }
-    dag_table_.clear();
 
     return chosen;
 }

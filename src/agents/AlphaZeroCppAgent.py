@@ -24,7 +24,8 @@ class AlphaZeroCppAgent(Agent):
     """AlphaZero agent backed by the C++ alphazero_server process."""
 
     def __init__(self, env, model_path=None, n_simulations=400,
-                 hidden_size=256, num_res_blocks=6, server_binary=None):
+                 hidden_size=256, num_res_blocks=6, server_binary=None,
+                 use_dag=True):
         """
         Args:
             env: BitBoardEnv (Python) — used for reading state.
@@ -34,10 +35,12 @@ class AlphaZeroCppAgent(Agent):
             num_res_blocks: Must match the model architecture.
             server_binary: Path to alphazero_server binary.
                            Auto-detected if None.
+            use_dag: Enable DAG transpositions in the C++ MCTS.
         """
         super().__init__(env)
         self.rows = getattr(env, 'rows', env.N)
         self.cols = getattr(env, 'cols', env.N)
+        self.use_dag = use_dag
 
         if model_path is None:
             current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -66,7 +69,7 @@ class AlphaZeroCppAgent(Agent):
 
         self._proc = self._start_server(
             server_binary, self.rows, self.cols, model_path,
-            n_simulations, hidden_size, num_res_blocks
+            n_simulations, hidden_size, num_res_blocks, use_dag
         )
 
         # Register cleanup
@@ -91,7 +94,7 @@ class AlphaZeroCppAgent(Agent):
         )
 
     def _start_server(self, binary, rows, cols, model_path,
-                      n_sims, hidden, blocks):
+                      n_sims, hidden, blocks, use_dag):
         """Launch the C++ server process."""
         cmd = [
             binary,
@@ -102,6 +105,8 @@ class AlphaZeroCppAgent(Agent):
             '--hidden', str(hidden),
             '--blocks', str(blocks),
         ]
+        if not use_dag:
+            cmd.append('--no-dag')
 
         proc = subprocess.Popen(
             cmd,

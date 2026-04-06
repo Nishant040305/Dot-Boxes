@@ -112,9 +112,18 @@ int main(int argc, char* argv[]) {
     int rows = 3, cols = -1, mcts_sims = 400, hidden = 256, blocks = 6;
     std::string model_path;
     float temperature = 0.0f;
+    bool use_dag = true;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
+        if (arg == "--dag") {
+            use_dag = true;
+            continue;
+        }
+        if (arg == "--no-dag") {
+            use_dag = false;
+            continue;
+        }
         if (i + 1 >= argc) break;
         std::string val = argv[++i];
         if      (arg == "--rows")    rows = std::stoi(val);
@@ -152,7 +161,7 @@ int main(int argc, char* argv[]) {
     azb::ServerNNPolicy nn_policy(model, device);
     azb::BitBoardEnv env(rows, cols);
     azb::AlphaZeroBitAgent agent(env, nn_policy, mcts_sims,
-                                 1.5f, 0.3f, 0.25f, 0.25f, false);
+                                 1.5f, 0.3f, 0.25f, 0.25f, false, use_dag);
 
     // Signal ready (stderr for diagnostics, stdout for protocol)
     std::cout << "{\"status\":\"ready\",\"rows\":" << rows
@@ -160,7 +169,8 @@ int main(int argc, char* argv[]) {
               << ",\"action_size\":" << env.action_size()
               << "}" << std::endl;
     std::cerr << "[server] Ready (rows=" << rows << ", cols=" << cols
-              << ", sims=" << mcts_sims << ")" << std::endl;
+              << ", sims=" << mcts_sims
+              << ", dag=" << (use_dag ? "on" : "off") << ")" << std::endl;
 
     // Main loop
     std::string line;

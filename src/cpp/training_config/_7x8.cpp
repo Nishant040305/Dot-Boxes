@@ -33,8 +33,8 @@ static azb::TrainConfig make_7x8_config() {
     cfg.buffer_grow       = 1000;
 
     // ── Inference ────────────────────────────────────────────
-    cfg.num_workers           = 32;
-    cfg.max_inference_batch   = 32;
+    cfg.num_workers           = 12;
+    cfg.max_inference_batch   = 12;
 
     // ── Checkpoints ──────────────────────────────────────────
     cfg.keep_checkpoints = 5;        

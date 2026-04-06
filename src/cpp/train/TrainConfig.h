@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "ValueEval.h"
+
 namespace azb {
 
 struct Phase {
@@ -55,11 +57,15 @@ struct TrainConfig {
     float dirichlet_alpha   = 0.3f;
     float dirichlet_epsilon = 0.25f;
     float fpu_reduction     = 0.25f;
+    bool use_dag            = false;
 
     // Temperature schedule
     int temp_threshold    = 10;   // moves < this use temp=1, else temp=0
     float temp_explore    = 1.0f;
     float temp_exploit    = 0.3f;
+
+    // Value target evaluation
+    ValueEval value_eval  = ValueEval::kWinLoss;
 
     // Paths
     std::string model_name = "alphazero";

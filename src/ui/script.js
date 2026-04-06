@@ -171,6 +171,8 @@ function getModifiedSpec(spec) {
     if (!spec) return spec;
     const depth = document.getElementById('ai-depth').value;
     const sims = document.getElementById('ai-sims').value;
+    const dagToggle = document.getElementById('ai-dag');
+    const useDag = dagToggle ? dagToggle.checked : true;
     
     let [type, params] = spec.split(':');
     if (!params) params = '';
@@ -191,6 +193,9 @@ function getModifiedSpec(spec) {
     if (sims && (type === 'mcts' || type === 'alphazero_bit' || type === 'alphazero_cpp')) {
         paramMap['n_simulations'] = sims;
         if (type === 'mcts') paramMap['iterations'] = sims;
+    }
+    if (type === 'alphazero_cpp') {
+        paramMap['dag'] = useDag;
     }
     
     let newParams = Object.keys(paramMap).map(k => `${k}=${paramMap[k]}`).join(',');

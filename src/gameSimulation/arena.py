@@ -86,6 +86,7 @@ def make_agent(agent_type, env, **kwargs):
             'alphabeta'    - AlphaBetaAgent (kwargs: depth, parallel)
             'alphazero'    - AlphaZeroAgent with conv net (kwargs: model_path, n_simulations)
             'alphazero_bit'- AlphaZeroBitAgent with FC net (kwargs: model_path, n_simulations)
+            'alphazero_cpp'- AlphaZero C++ agent (kwargs: model_path, n_simulations, dag/use_dag)
             'mcts'         - MCTSAgent (kwargs: n_simulations)
         env: The environment instance
         **kwargs: Agent-specific parameters
@@ -130,11 +131,27 @@ def make_agent(agent_type, env, **kwargs):
         model_path = kwargs.get('model_path', _find_model_path(f"alphazero_bit_{rows}x{cols}_checkpoint.pth"))
         device = kwargs.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
         checkpoint = kwargs.get('checkpoint', True)
+        return AlphaZeroBitAgent(
+            env,
+            model_path=model_path,
+            n_simulations=n_sims,
+            device=device,
+            checkpoint=checkpoint,
+        )
     elif agent_type == 'alphazero_cpp':
         from agents.AlphaZeroCppAgent import AlphaZeroCppAgent
         n_sims = kwargs.get('n_simulations', 400)
         model_path = kwargs.get('model_path', _find_model_path(f"alphazero_{rows}x{cols}.pt"))
-        return AlphaZeroCppAgent(env, model_path=model_path, n_simulations=n_sims)
+        if 'no_dag' in kwargs:
+            use_dag = not bool(kwargs.get('no_dag'))
+        else:
+            use_dag = kwargs.get('use_dag', kwargs.get('dag', True))
+        return AlphaZeroCppAgent(
+            env,
+            model_path=model_path,
+            n_simulations=n_sims,
+            use_dag=use_dag,
+        )
     
     elif agent_type == 'mcts':
         from agents.MCTSAgent import MCTSAgent
