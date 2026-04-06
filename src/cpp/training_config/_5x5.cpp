@@ -8,34 +8,41 @@ static azb::TrainConfig make_5x5_config() {
     cfg.cols = 5;
 
     // ════════════════════════════════════════════════════════
-    //  NETWORK
+    //  NETWORK  —  scaled up for 5x5 complexity
+    //
+    //  5x5 state space is ~2^60 vs 4x3's ~2^31.  The network
+    //  must reason about chains across 25 boxes (vs 12), which
+    //  requires both wider layers (384 vs 128) and deeper
+    //  residual tower (10 vs 6) to propagate chain information
+    //  across the full board.
     // ════════════════════════════════════════════════════════
-    cfg.hidden_size    = 256;
-    cfg.num_res_blocks = 8;
-    cfg.dropout        = 0.08f;
+    cfg.hidden_size    = 384;
+    cfg.num_res_blocks = 10;
+    cfg.dropout        = 0.06f;
 
     // ════════════════════════════════════════════════════════
     //  MCTS
     // ════════════════════════════════════════════════════════
-    // c_puct raised to 1.6 — matching 4x3. 5x5 has a much larger
-    // branching factor so the tree NEEDS more exploration pressure
-    // to find forcing sequences. 1.35 was starving the tree.
+    //  c_puct = 1.6: 5x5 has ~60 legal moves early on. Higher
+    //  exploration pressure is essential to find forcing sequences
+    //  in the large branching factor.
     cfg.c_puct            = 1.6f;
 
-    // dirichlet_alpha lowered to 0.12 — 5x5 has more moves so
-    // each individual move needs less noise weight to stay diverse.
-    cfg.dirichlet_alpha   = 0.12f;
+    //  dirichlet_alpha = 0.10: lower than 4x3's 0.15 because
+    //  each move needs less noise when there are more moves.
+    //  0.10 * ~60 moves ≈ 6.0 total noise mass, matching 4x3's
+    //  0.15 * ~30 ≈ 4.5 (slightly higher to encourage exploration
+    //  in the larger space).
+    cfg.dirichlet_alpha   = 0.10f;
     cfg.dirichlet_epsilon = 0.25f;
 
-    // fpu_reduction matches 4x3 — penalise unvisited nodes enough
-    // that the tree commits to promising lines rather than scattering.
     cfg.fpu_reduction     = 0.20f;
     cfg.use_dag           = false;
 
     // ════════════════════════════════════════════════════════
     //  SELF-PLAY  (global defaults, overridden per phase)
     // ════════════════════════════════════════════════════════
-    cfg.mcts_sims         = 400;
+    cfg.mcts_sims         = 600;
     cfg.episodes_per_iter = 200;
     cfg.num_iters         = 200;
 
@@ -56,20 +63,19 @@ static azb::TrainConfig make_5x5_config() {
     // ════════════════════════════════════════════════════════
     //  REPLAY BUFFER
     // ════════════════════════════════════════════════════════
-    cfg.buffer_capacity = 200000;
-
-    // buffer_grow raised to 5000 — matches 4x3 philosophy.
-    // 2000 was the silent killer: the buffer was filling with
-    // stale early-phase games and drowning out new learning.
-    // 5000 flushes stale data faster so each phase's lessons
-    // actually dominate the training batch.
-    cfg.buffer_grow     = 5000;
+    //  With 8× symmetry augmentation (D₄ group on square board),
+    //  each game produces ~60 moves × 8 = 480 training positions.
+    //  120k buffer ≈ 250 games of data, keeping it fresh.
+    //  Old 200k buffer was drowning late-phase data in stale
+    //  early-phase games.
+    cfg.buffer_capacity = 120000;
+    cfg.buffer_grow     = 3000;
 
     // ════════════════════════════════════════════════════════
     //  PARALLELISM
     // ════════════════════════════════════════════════════════
     cfg.num_workers         = 16;
-    cfg.max_inference_batch = 128;  // raised from 32 — matches 4x3
+    cfg.max_inference_batch = 128;
 
     // ════════════════════════════════════════════════════════
     //  CHECKPOINTS
@@ -78,63 +84,63 @@ static azb::TrainConfig make_5x5_config() {
     cfg.model_name       = "alphazero_5x5";
     cfg.model_dir        = "../models/_5x5";
 
-    // __ Evaluation Matrix ____________________________________
-    cfg.value_eval = azb::ValueEval::kScoreDiffTanh;
+    // ════════════════════════════════════════════════════════
+    //  VALUE EVALUATION  —  kScoreDiffScaled
+    //
+    //  This is the CRITICAL fix.  kScoreDiffTanh divides by
+    //  total_boxes before tanh, which crushes the training
+    //  signal on 5x5 (values cluster in [-0.2, +0.2]).
+    //
+    //  kScoreDiffScaled uses tanh(0.5 * raw_score_diff):
+    //    1-box lead → 0.46   (strong, discriminative)
+    //    2-box lead → 0.76   (clearly winning)
+    //    3-box lead → 0.91   (decisive)
+    //
+    //  Board-size invariant — same signal on 4x3, 5x5, or 7x8.
+    // ════════════════════════════════════════════════════════
+    cfg.value_eval = azb::ValueEval::kScoreDiffScaled;
 
     // ════════════════════════════════════════════════════════
-    //  PHASES  —  4 phases, mirroring 4x3 structure exactly
+    //  PHASES  —  4 phases, mirroring 4x3 structure
     //
-    //  Root cause of previous failure: 7 phases spread the learning
-    //  too thin. The 4x3 hammers each phase hard (epochs up to 30,
-    //  temp_exploit down to 0.01) before moving on. The 5x5 config
-    //  was babying the model across too many gentle transitions.
-    //
-    //  Key fixes applied from 4x3 analysis:
-    //    1. epochs ramps 12 → 18 → 25 → 30  (was stuck at 15)
-    //    2. temp_exploit reaches 0.01 in Mastery  (was 0.04–0.08)
-    //    3. c_puct = 1.6  (was 1.35, tree was under-exploring)
-    //    4. buffer_grow = 5000  (was 2000, stale data dominated)
-    //    5. max_inference_batch = 128  (was 32, unnecessary bottleneck)
-    //    6. LR 0.003 start — aggressive initial learning on loaded
-    //       weights catches the network up fast without instability
+    //  Key changes from previous config:
+    //    1. kScoreDiffScaled — 2-5× stronger value signal
+    //    2. Full D₄ augmentation — 8× data (was 3×)
+    //    3. value_eval passed to MCTS agent — consistent
+    //       terminal evaluation (was mismatched!)
+    //    4. MCTS sims scaled with action space:
+    //       DeepSearch 1000 sims / 60 actions ≈ 17 visits/action
+    //       (comparable to 4x3's 600/31 ≈ 19)
+    //    5. Network 384h × 10 blocks — adequate for 25-box
+    //       chain reasoning
     //
     //  Game counts:
-    //    Phase 1  Bootstrap   :  25 × 300 =   7,500
-    //    Phase 2  ChainAware  :  70 × 250 =  17,500
-    //    Phase 3  DeepSearch  :  65 × 200 =  13,000
-    //    Phase 4  Mastery     :  40 × 150 =   6,000
+    //    Phase 1  Bootstrap   :  30 × 300 =   9,000
+    //    Phase 2  ChainAware  :  80 × 250 =  20,000
+    //    Phase 3  DeepSearch  :  70 × 200 =  14,000
+    //    Phase 4  Mastery     :  50 × 150 =   7,500
     //                                       ────────
-    //                           TOTAL      =  44,000 games
-    //
-    //  NOTE: 44k games is intentionally modest. The 4x3 needed
-    //  only 20k games to beat alpha-beta depth-3. 5x5 is harder
-    //  but the fix is not MORE games — it is the right training
-    //  signal per game. Run this full pass first; if ChainAware
-    //  plateau is visible in loss curves, double that phase only.
+    //                           TOTAL      =  50,500 games
+    //                           × 60 moves × 8 augment = ~24M positions
     //
     //  Time estimate (i7-13700H):
-    //    Phase 1 (200 sims, warm-up)    :  ~15 min
-    //    Phase 2 (400 sims, chain burn) :  ~60 min
-    //    Phase 3 (700 sims, deep)       :  ~80 min
-    //    Phase 4 (900 sims, mastery)    :  ~55 min
-    //                                     ─────────
-    //                         TOTAL     =  ~3.5 hrs
+    //    Phase 1 (250 sims)     :  ~20 min
+    //    Phase 2 (600 sims)     :  ~80 min
+    //    Phase 3 (1000 sims)    :  ~100 min
+    //    Phase 4 (1400 sims)    :  ~75 min
+    //                              ─────────
+    //                  TOTAL    =  ~4.5 hrs
     // ════════════════════════════════════════════════════════
     cfg.phases = {
 
         // ── Phase 1: Bootstrap ───────────────────────────────
-        // Resume from existing weights. Short, high-LR warm-up.
-        // 200 sims is intentionally low — we want cheap games that
-        // refresh the replay buffer with current-policy data quickly.
-        // epochs=12 is enough to absorb the new games without
-        // overwriting the square-making knowledge already present.
-        // temp_exploit=0.2 — loose, lets the model re-explore
-        // positions it already knows. Not trying to learn here,
-        // just re-anchoring the resumed weights.
+        //  Warm-up with moderate sims. 8× augmentation means
+        //  even 300 games produce 300×60×8 = 144k positions.
+        //  LR 0.003 for fast initial learning.
         {
             /*name*/              "Bootstrap",
-            /*iterations*/        25,
-            /*mcts_sims*/         200,
+            /*iterations*/        30,
+            /*mcts_sims*/         250,
             /*episodes_per_iter*/ 300,
             /*epochs*/            12,
             /*lr*/                0.003f,
@@ -144,29 +150,13 @@ static azb::TrainConfig make_5x5_config() {
         },
 
         // ── Phase 2: ChainAware ──────────────────────────────
-        // The make-or-break phase. Directly mirrors 4x3's Phase 2.
-        // This is where chain tactics MUST be burned in:
-        //   — do not give away long chains
-        //   — sacrifice short chains to gain long ones
-        //   — recognise forcing sequences 3–4 moves ahead
-        //
-        // epochs=18: same as 4x3. The network needs many gradient
-        // steps per batch of games to internalise subtle chain value.
-        // One epoch per game batch is nowhere near enough — the
-        // signal from a forced sacrifice is rare and weak unless
-        // the network sees it repeatedly per update cycle.
-        //
-        // temp_exploit=0.05: much more aggressive than before.
-        // The model must COMMIT to its chain assessment, not sample.
-        // At 0.15+ the policy stays soft enough that the model
-        // "accidentally" gives away chains and never gets a clean
-        // training signal that it was wrong.
-        //
-        // 400 sims at 5x5 sees ~4-move forcing sequences cleanly.
+        //  600 sims ≈ 10 visits/action — enough to see 3-4 move
+        //  forcing sequences at 5x5 branching factor.
+        //  epochs=18 to burn in chain tactics.
         {
             /*name*/              "ChainAware",
-            /*iterations*/        70,
-            /*mcts_sims*/         400,
+            /*iterations*/        80,
+            /*mcts_sims*/         600,
             /*episodes_per_iter*/ 250,
             /*epochs*/            18,
             /*lr*/                0.001f,
@@ -176,26 +166,13 @@ static azb::TrainConfig make_5x5_config() {
         },
 
         // ── Phase 3: DeepSearch ──────────────────────────────
-        // Directly mirrors 4x3's Phase 3. DAG is now dense —
-        // abort rate very low, every sim is effective.
-        // 700 sims reaches deep enough to evaluate full endgame
-        // on 5x5 (avg ~20 moves, 700 sims covers the critical
-        // branching points with sufficient visit counts).
-        //
-        // epochs=25: same as 4x3. At this stage the value head
-        // is doing fine-grained chain counting. More gradient
-        // steps per game batch means the value estimates converge
-        // to accurate chain counts rather than noisy approximations.
-        //
-        // temp_exploit=0.03: near-deterministic. Policy must be
-        // sharp enough that the model plays the same move twice
-        // from the same position. Anything above 0.05 allows
-        // enough sampling variance to produce inconsistent play
-        // that alpha-beta can exploit.
+        //  1000 sims ≈ 17 visits/action — comparable to 4x3's
+        //  600/31 ≈ 19 visits/action. Deep enough for endgame
+        //  chain counting on 5x5.
         {
             /*name*/              "DeepSearch",
-            /*iterations*/        65,
-            /*mcts_sims*/         700,
+            /*iterations*/        70,
+            /*mcts_sims*/         1000,
             /*episodes_per_iter*/ 200,
             /*epochs*/            25,
             /*lr*/                0.0005f,
@@ -205,29 +182,13 @@ static azb::TrainConfig make_5x5_config() {
         },
 
         // ── Phase 4: Mastery ─────────────────────────────────
-        // Directly mirrors 4x3's Phase 4. Policy sharpening only.
-        // 900 sims is the ceiling for 5x5 on i7-13700H before
-        // marginal returns collapse — tree is near-saturated and
-        // extra sims refine visit distributions rather than
-        // discovering new lines.
-        //
-        // epochs=30: same as 4x3. At near-zero LR, each epoch
-        // is essentially free in terms of catastrophic forgetting
-        // risk but provides another pass over the current game
-        // batch, further sharpening the policy toward the unique
-        // best move in each position.
-        //
-        // temp_exploit=0.01: matches 4x3 exactly. This is
-        // functionally greedy (the argmax move gets ~99% of
-        // probability mass at this temperature). AlphaZero is
-        // now playing like alpha-beta — always the best known move.
-        //
-        // LR=0.0001: matches 4x3. Just enough gradient to keep
-        // the weights from drifting, not enough to change them.
+        //  1400 sims ≈ 23 visits/action — comparable to 4x3's
+        //  800/31 ≈ 26 visits/action. Near-saturated tree at
+        //  near-zero temperature for policy sharpening.
         {
             /*name*/              "Mastery",
-            /*iterations*/        40,
-            /*mcts_sims*/         900,
+            /*iterations*/        50,
+            /*mcts_sims*/         1400,
             /*episodes_per_iter*/ 150,
             /*epochs*/            30,
             /*lr*/                0.0001f,
