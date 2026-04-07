@@ -54,6 +54,7 @@ void AlphaZeroTrainer::train() {
              << ",\"cols\":" << cfg_.cols
              << ",\"hidden_size\":" << cfg_.hidden_size
              << ",\"num_res_blocks\":" << cfg_.num_res_blocks
+             << ",\"value_eval\":\"" << azb::value_eval_name(cfg_.value_eval) << "\""
              << "}\n";
     }
 

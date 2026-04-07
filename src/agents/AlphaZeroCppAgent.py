@@ -25,7 +25,7 @@ class AlphaZeroCppAgent(Agent):
 
     def __init__(self, env, model_path=None, n_simulations=400,
                  hidden_size=256, num_res_blocks=6, server_binary=None,
-                 use_dag=True):
+                 use_dag=True, value_eval='score_diff_scaled'):
         """
         Args:
             env: BitBoardEnv (Python) — used for reading state.
@@ -62,14 +62,17 @@ class AlphaZeroCppAgent(Agent):
                     info = json.load(f)
                 hidden_size = info.get('hidden_size', hidden_size)
                 num_res_blocks = info.get('num_res_blocks', num_res_blocks)
+                value_eval = info.get('value_eval', value_eval)
                 print(f"[AlphaZeroCppAgent] Detected architecture: "
-                      f"hidden={hidden_size}, blocks={num_res_blocks}")
+                      f"hidden={hidden_size}, blocks={num_res_blocks}, "
+                      f"value_eval={value_eval}")
             except Exception as e:
                 print(f"[AlphaZeroCppAgent] Could not read model_info.json: {e}, using defaults.")
 
         self._proc = self._start_server(
             server_binary, self.rows, self.cols, model_path,
-            n_simulations, hidden_size, num_res_blocks, use_dag
+            n_simulations, hidden_size, num_res_blocks, use_dag,
+            value_eval
         )
 
         # Register cleanup
@@ -94,7 +97,7 @@ class AlphaZeroCppAgent(Agent):
         )
 
     def _start_server(self, binary, rows, cols, model_path,
-                      n_sims, hidden, blocks, use_dag):
+                      n_sims, hidden, blocks, use_dag, value_eval):
         """Launch the C++ server process."""
         cmd = [
             binary,
@@ -104,6 +107,7 @@ class AlphaZeroCppAgent(Agent):
             '--sims', str(n_sims),
             '--hidden', str(hidden),
             '--blocks', str(blocks),
+            '--value-eval', str(value_eval),
         ]
         if not use_dag:
             cmd.append('--no-dag')

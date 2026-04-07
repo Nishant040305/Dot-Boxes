@@ -113,6 +113,8 @@ int main(int argc, char* argv[]) {
     std::string model_path;
     float temperature = 0.0f;
     bool use_dag = true;
+    float c_puct = 1.6f;
+    azb::ValueEval value_eval = azb::ValueEval::kScoreDiffScaled;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -133,6 +135,13 @@ int main(int argc, char* argv[]) {
         else if (arg == "--hidden")  hidden = std::stoi(val);
         else if (arg == "--blocks")  blocks = std::stoi(val);
         else if (arg == "--temp")    temperature = std::stof(val);
+        else if (arg == "--c-puct")  c_puct = std::stof(val);
+        else if (arg == "--value-eval") {
+            if (!azb::parse_value_eval(val, value_eval)) {
+                std::cerr << "[server] Unknown value eval: " << val << std::endl;
+                return 1;
+            }
+        }
     }
     if (cols < 0) cols = rows;
     if (model_path.empty()) {
@@ -157,11 +166,13 @@ int main(int argc, char* argv[]) {
         model->eval();
     }
 
-    // Create agent
+    // Create agent — match training MCTS config
     azb::ServerNNPolicy nn_policy(model, device);
     azb::BitBoardEnv env(rows, cols);
     azb::AlphaZeroBitAgent agent(env, nn_policy, mcts_sims,
-                                 1.5f, 0.3f, 0.25f, 0.25f, false, use_dag);
+                                 c_puct, 0.3f, 0.25f, 0.20f,
+                                 false, use_dag, value_eval);
+    std::cerr << "[server] Value eval: " << azb::value_eval_name(value_eval) << std::endl;
 
     // Signal ready (stderr for diagnostics, stdout for protocol)
     std::cout << "{\"status\":\"ready\",\"rows\":" << rows
