@@ -190,11 +190,11 @@ function getModifiedSpec(spec) {
     if (depth && (type === 'minmax' || type === 'alphabeta')) {
         paramMap['depth'] = depth;
     }
-    if (sims && (type === 'mcts' || type === 'alphazero_bit' || type === 'alphazero_cpp')) {
+    if (sims && (type === 'mcts' || type === 'alphazero_bit' || type === 'alphazero_cpp' || type === 'alphazero_patch')) {
         paramMap['n_simulations'] = sims;
         if (type === 'mcts') paramMap['iterations'] = sims;
     }
-    if (type === 'alphazero_cpp') {
+    if (type === 'alphazero_cpp' || type === 'alphazero_patch') {
         paramMap['dag'] = useDag;
     }
     

@@ -1,5 +1,6 @@
 #pragma once
 /// AlphaZero Trainer — orchestrates self-play, inference, and training.
+/// Supports both standard AlphaZeroBitNet and hierarchical PatchNet via ModelHandle.
 
 #include <atomic>
 #include <iostream>
@@ -10,6 +11,7 @@
 
 #include <torch/torch.h>
 #include "AlphaZeroBitNet.h"
+#include "ModelHandle.h"
 #include "InferenceServer.h"
 #include "ReplayBuffer.h"
 #include "SelfPlayWorker.h"
@@ -33,7 +35,7 @@ private:
 
     TrainConfig cfg_;
     torch::Device device_;
-    AlphaZeroBitNet model_{nullptr};
+    ModelHandle model_;
     ReplayBuffer replay_buffer_;
 };
 

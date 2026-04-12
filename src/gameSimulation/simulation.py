@@ -236,7 +236,9 @@ class BaseAlphaZeroCppSimulation(BaseSimulation):
             current_dir = os.path.dirname(os.path.abspath(__file__))
             root_dir = os.path.dirname(os.path.dirname(current_dir))
             models_dir = os.path.join(root_dir, 'models')
-            self.model_path = os.path.join(models_dir, f"alphazero_{env.N}x{env.N}.pt")
+            rows = getattr(env, 'rows', getattr(env, 'N', 3))
+            cols = getattr(env, 'cols', getattr(env, 'N', 3))
+            self.model_path = os.path.join(models_dir, f"alphazero_{rows}x{cols}.pt")
         else:
             self.model_path = model_path
 

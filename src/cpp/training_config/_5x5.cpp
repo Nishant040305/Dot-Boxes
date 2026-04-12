@@ -65,11 +65,12 @@ static azb::TrainConfig make_5x5_config() {
     // ════════════════════════════════════════════════════════
     //  With 8× symmetry augmentation (D₄ group on square board),
     //  each game produces ~60 moves × 8 = 480 training positions.
-    //  120k buffer ≈ 250 games of data, keeping it fresh.
-    //  Old 200k buffer was drowning late-phase data in stale
-    //  early-phase games.
-    cfg.buffer_capacity = 120000;
-    cfg.buffer_grow     = 3000;
+    //  DIAGNOSTIC: augmentation disabled to test if it's corrupting
+    //  training data.  Without 8× aug, each game produces ~60 samples.
+    //  Buffer sized for ~500 games of data.
+    cfg.use_augmentation = false;
+    cfg.buffer_capacity = 60000;
+    cfg.buffer_grow     = 2000;
 
     // ════════════════════════════════════════════════════════
     //  PARALLELISM
@@ -134,68 +135,22 @@ static azb::TrainConfig make_5x5_config() {
     cfg.phases = {
 
         // ── Phase 1: Bootstrap ───────────────────────────────
-        //  Warm-up with moderate sims. 8× augmentation means
-        //  even 300 games produce 300×60×8 = 144k positions.
-        //  LR 0.003 for fast initial learning.
+        //  capture_boost=0.3 breaks the cold-start problem:
+        //  ensures MCTS always explores capture moves so the NN
+        //  can learn "capture = good" from day one.
         {
             /*name*/              "Bootstrap",
-            /*iterations*/        30,
-            /*mcts_sims*/         250,
-            /*episodes_per_iter*/ 300,
-            /*epochs*/            12,
+            /*iterations*/        500,
+            /*mcts_sims*/         800,
+            /*episodes_per_iter*/ 100,
+            /*epochs*/            2,
             /*lr*/                0.003f,
             /*temp_threshold*/    8,
             /*temp_explore*/      1.0f,
-            /*temp_exploit*/      0.20f
+            /*temp_exploit*/      0.20f,
+            /*capture_boost*/     0.0
         },
 
-        // ── Phase 2: ChainAware ──────────────────────────────
-        //  600 sims ≈ 10 visits/action — enough to see 3-4 move
-        //  forcing sequences at 5x5 branching factor.
-        //  epochs=18 to burn in chain tactics.
-        {
-            /*name*/              "ChainAware",
-            /*iterations*/        80,
-            /*mcts_sims*/         600,
-            /*episodes_per_iter*/ 250,
-            /*epochs*/            18,
-            /*lr*/                0.001f,
-            /*temp_threshold*/    6,
-            /*temp_explore*/      0.80f,
-            /*temp_exploit*/      0.05f
-        },
-
-        // ── Phase 3: DeepSearch ──────────────────────────────
-        //  1000 sims ≈ 17 visits/action — comparable to 4x3's
-        //  600/31 ≈ 19 visits/action. Deep enough for endgame
-        //  chain counting on 5x5.
-        {
-            /*name*/              "DeepSearch",
-            /*iterations*/        70,
-            /*mcts_sims*/         1000,
-            /*episodes_per_iter*/ 200,
-            /*epochs*/            25,
-            /*lr*/                0.0005f,
-            /*temp_threshold*/    5,
-            /*temp_explore*/      0.60f,
-            /*temp_exploit*/      0.03f
-        },
-
-        // ── Phase 4: Mastery ─────────────────────────────────
-        //  1400 sims ≈ 23 visits/action — comparable to 4x3's
-        //  800/31 ≈ 26 visits/action. Near-saturated tree at
-        //  near-zero temperature for policy sharpening.
-        {
-            /*name*/              "Mastery",
-            /*iterations*/        50,
-            /*mcts_sims*/         1400,
-            /*episodes_per_iter*/ 150,
-            /*epochs*/            30,
-            /*lr*/                0.0001f,
-            /*temp_threshold*/    4,
-            /*temp_explore*/      0.40f,
-            /*temp_exploit*/      0.01f
-        },
     };
 
     return cfg;

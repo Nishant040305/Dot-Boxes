@@ -58,15 +58,16 @@ def _find_model_path(filename):
         os.path.join(_src_dir, '..', 'models', filename),
         os.path.join(_src_dir, 'models', filename),
     ]
-    # Auto-detect board size subdirectory from filename (e.g. alphazero_4x3.pt -> 4x3/)
+    # Auto-detect board size subdirectory from filename (e.g. alphazero_4x3.pt -> _4x3/ or 4x3/)
     m = re.search(r'_(\d+x\d+)', filename)
     if m:
         board = m.group(1)
+        candidates.append(os.path.join(_src_dir, 'cpp', 'models', f"_{board}", filename))
         candidates.append(os.path.join(_src_dir, 'cpp', 'models', board, filename))
     # Fallback: search all subdirs under cpp/models/
     cpp_models = os.path.join(_src_dir, 'cpp', 'models')
     if os.path.isdir(cpp_models):
-        for sub in os.listdir(cpp_models):
+        for sub in sorted(os.listdir(cpp_models)):
             candidates.append(os.path.join(cpp_models, sub, filename))
     for path in candidates:
         path = os.path.abspath(path)
@@ -142,6 +143,43 @@ def make_agent(agent_type, env, **kwargs):
         from agents.AlphaZeroCppAgent import AlphaZeroCppAgent
         n_sims = kwargs.get('n_simulations', 400)
         model_path = kwargs.get('model_path', _find_model_path(f"alphazero_{rows}x{cols}.pt"))
+        if 'no_dag' in kwargs:
+            use_dag = not bool(kwargs.get('no_dag'))
+        else:
+            use_dag = kwargs.get('use_dag', kwargs.get('dag', True))
+        return AlphaZeroCppAgent(
+            env,
+            model_path=model_path,
+            n_simulations=n_sims,
+            use_dag=use_dag,
+        )
+
+    elif agent_type == 'alphazero_patch':
+        from agents.AlphaZeroCppAgent import AlphaZeroCppAgent
+        n_sims = kwargs.get('n_simulations', 600)
+        # Look for patch model in priority order:
+        #   1. Explicit model_path kwarg
+        #   2. _NxM_patch/ directory
+        #   3. Fallback to standard model
+        model_path = kwargs.get('model_path', None)
+        if model_path is None:
+            patch_filename = f"alphazero_{rows}x{cols}.pt"
+            # Search in patch-specific directories
+            patch_candidates = [
+                os.path.join(_src_dir, 'cpp', 'models', f"_{rows}x{cols}_patch", patch_filename),
+                os.path.join(_src_dir, '..', 'models', f"_{rows}x{cols}_patch", patch_filename),
+            ]
+            model_path = None
+            for p in patch_candidates:
+                p = os.path.abspath(p)
+                if os.path.exists(p):
+                    model_path = p
+                    break
+            if model_path is None:
+                # Fallback to standard model
+                model_path = _find_model_path(patch_filename)
+                print(f"[arena] PatchNet model not found, falling back to: {model_path}")
+        
         if 'no_dag' in kwargs:
             use_dag = not bool(kwargs.get('no_dag'))
         else:

@@ -24,6 +24,7 @@
 #include "AlphaZeroBitAgent.h"
 #include "AlphaZeroBitNet.h"
 #include "BitBoardEnv.h"
+#include "PatchNet.h"
 
 namespace azb {
 
@@ -69,9 +70,10 @@ private:
 
 // ─── NN Policy for the server ────────────────────────────────────
 
-class ServerNNPolicy : public AsyncPolicyValueFn {
+template <typename ModelHolder>
+class ServerNNPolicyT : public AsyncPolicyValueFn {
 public:
-    ServerNNPolicy(AlphaZeroBitNet& model, torch::Device device)
+    ServerNNPolicyT(ModelHolder& model, torch::Device device)
         : model_(model), device_(device) {}
 
     uint64_t submit(const StateSnapshot& state) override {
@@ -79,9 +81,9 @@ public:
         torch::NoGradGuard no_grad;
         auto [logits, value] = model_->forward(feat);
         auto probs = torch::softmax(logits, 1).cpu();
-        std::vector<float> policy(probs[0].data_ptr<float>(),
-                                  probs[0].data_ptr<float>() + probs[0].numel());
-        PolicyValue pv{std::move(policy), value.item<float>()};
+        std::vector<float> policy(probs[0].template data_ptr<float>(),
+                                  probs[0].template data_ptr<float>() + probs[0].numel());
+        PolicyValue pv{std::move(policy), value.template item<float>()};
         std::lock_guard<std::mutex> lock(mu_);
         const uint64_t req_id = next_id_++;
         ready_[req_id] = std::move(pv);
@@ -98,7 +100,7 @@ public:
     }
 
 private:
-    AlphaZeroBitNet& model_;
+    ModelHolder& model_;
     torch::Device device_;
     std::unordered_map<uint64_t, PolicyValue> ready_;
     uint64_t next_id_ = 1;
@@ -115,6 +117,11 @@ int main(int argc, char* argv[]) {
     bool use_dag = true;
     float c_puct = 1.6f;
     azb::ValueEval value_eval = azb::ValueEval::kScoreDiffScaled;
+    bool use_patch_net = false;
+    int patch_rows = 3, patch_cols = 3;
+    int local_hidden = 128, local_blocks = 6;
+    int global_hidden = 192, global_blocks = 4;
+    std::string local_model_path;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -124,6 +131,10 @@ int main(int argc, char* argv[]) {
         }
         if (arg == "--no-dag") {
             use_dag = false;
+            continue;
+        }
+        if (arg == "--patch") {
+            use_patch_net = true;
             continue;
         }
         if (i + 1 >= argc) break;
@@ -136,6 +147,13 @@ int main(int argc, char* argv[]) {
         else if (arg == "--blocks")  blocks = std::stoi(val);
         else if (arg == "--temp")    temperature = std::stof(val);
         else if (arg == "--c-puct")  c_puct = std::stof(val);
+        else if (arg == "--patch-rows")    patch_rows = std::stoi(val);
+        else if (arg == "--patch-cols")    patch_cols = std::stoi(val);
+        else if (arg == "--local-hidden")  local_hidden = std::stoi(val);
+        else if (arg == "--local-blocks")  local_blocks = std::stoi(val);
+        else if (arg == "--global-hidden") global_hidden = std::stoi(val);
+        else if (arg == "--global-blocks") global_blocks = std::stoi(val);
+        else if (arg == "--local-model")   local_model_path = val;
         else if (arg == "--value-eval") {
             if (!azb::parse_value_eval(val, value_eval)) {
                 std::cerr << "[server] Unknown value eval: " << val << std::endl;
@@ -153,82 +171,119 @@ int main(int argc, char* argv[]) {
     torch::Device device = torch::kCPU;
     if (torch::cuda::is_available()) device = torch::Device(torch::kCUDA);
 
-    azb::AlphaZeroBitNet model(rows, cols, hidden, blocks);
-    try {
-        torch::load(model, model_path);
-        model->to(device);
-        model->eval();
-        std::cerr << "[server] Loaded model: " << model_path << std::endl;
-    } catch (const std::exception& e) {
-        std::cerr << "[server] WARNING: " << e.what()
-                  << " — using random weights." << std::endl;
-        model->to(device);
-        model->eval();
-    }
-
-    // Create agent — match training MCTS config
-    azb::ServerNNPolicy nn_policy(model, device);
     azb::BitBoardEnv env(rows, cols);
-    azb::AlphaZeroBitAgent agent(env, nn_policy, mcts_sims,
-                                 c_puct, 0.3f, 0.25f, 0.20f,
-                                 false, use_dag, value_eval);
-    std::cerr << "[server] Value eval: " << azb::value_eval_name(value_eval) << std::endl;
+    auto run_loop = [&](azb::AlphaZeroBitAgent& agent) {
+        std::cerr << "[server] Value eval: " << azb::value_eval_name(value_eval) << std::endl;
 
-    // Signal ready (stderr for diagnostics, stdout for protocol)
-    std::cout << "{\"status\":\"ready\",\"rows\":" << rows
-              << ",\"cols\":" << cols
-              << ",\"action_size\":" << env.action_size()
-              << "}" << std::endl;
-    std::cerr << "[server] Ready (rows=" << rows << ", cols=" << cols
-              << ", sims=" << mcts_sims
-              << ", dag=" << (use_dag ? "on" : "off") << ")" << std::endl;
+        // Signal ready (stderr for diagnostics, stdout for protocol)
+        std::cout << "{\"status\":\"ready\",\"rows\":" << rows
+                  << ",\"cols\":" << cols
+                  << ",\"action_size\":" << env.action_size()
+                  << "}" << std::endl;
+        std::cerr << "[server] Ready (rows=" << rows << ", cols=" << cols
+                  << ", sims=" << mcts_sims
+                  << ", dag=" << (use_dag ? "on" : "off") << ")" << std::endl;
 
-    // Main loop
-    std::string line;
-    while (std::getline(std::cin, line)) {
-        if (line.empty()) continue;
+        // Main loop
+        std::string line;
+        while (std::getline(std::cin, line)) {
+            if (line.empty()) continue;
 
-        azb::SimpleJSON json(line);
-        std::string cmd = json.get_string("cmd");
+            azb::SimpleJSON json(line);
+            std::string cmd = json.get_string("cmd");
 
-        if (cmd == "quit") break;
+            if (cmd == "quit") break;
 
-        if (cmd == "reset") {
-            env.reset();
-            std::cout << "{\"status\":\"ok\"}" << std::endl;
-            continue;
-        }
-
-        if (cmd == "act") {
-            // Restore state from Python's authoritative representation
-            azb::FastBitset h_edges((rows + 1) * cols);
-            azb::FastBitset v_edges(rows * (cols + 1));
-            azb::FastBitset boxes_p1(rows * cols);
-            azb::FastBitset boxes_p2(rows * cols);
-
-            if (h_edges.num_words() > 0) h_edges.raw()[0] = static_cast<uint64_t>(json.get_int("h_edges"));
-            if (v_edges.num_words() > 0) v_edges.raw()[0] = static_cast<uint64_t>(json.get_int("v_edges"));
-            if (boxes_p1.num_words() > 0) boxes_p1.raw()[0] = static_cast<uint64_t>(json.get_int("boxes_p1"));
-            if (boxes_p2.num_words() > 0) boxes_p2.raw()[0] = static_cast<uint64_t>(json.get_int("boxes_p2"));
-
-            int current_player = static_cast<int>(json.get_int("current_player"));
-            int score_p1 = static_cast<int>(json.get_int("score_p1"));
-            int score_p2 = static_cast<int>(json.get_int("score_p2"));
-            bool done = json.get_bool("done");
-
-            env.set_state(h_edges, v_edges, boxes_p1, boxes_p2,
-                          current_player, done, score_p1, score_p2);
-
-            if (env.done()) {
-                std::cout << "{\"edge_type\":-1,\"r\":-1,\"c\":-1}" << std::endl;
+            if (cmd == "reset") {
+                env.reset();
+                std::cout << "{\"status\":\"ok\"}" << std::endl;
                 continue;
             }
 
-            azb::Action action = agent.act(env, false, temperature);
-            std::cout << "{\"edge_type\":" << action.edge_type
-                      << ",\"r\":" << action.r
-                      << ",\"c\":" << action.c << "}" << std::endl;
+            if (cmd == "act") {
+                // Restore state from Python's authoritative representation
+                azb::FastBitset h_edges((rows + 1) * cols);
+                azb::FastBitset v_edges(rows * (cols + 1));
+                azb::FastBitset boxes_p1(rows * cols);
+                azb::FastBitset boxes_p2(rows * cols);
+
+                if (h_edges.num_words() > 0) h_edges.raw()[0] = static_cast<uint64_t>(json.get_int("h_edges"));
+                if (v_edges.num_words() > 0) v_edges.raw()[0] = static_cast<uint64_t>(json.get_int("v_edges"));
+                if (boxes_p1.num_words() > 0) boxes_p1.raw()[0] = static_cast<uint64_t>(json.get_int("boxes_p1"));
+                if (boxes_p2.num_words() > 0) boxes_p2.raw()[0] = static_cast<uint64_t>(json.get_int("boxes_p2"));
+
+                int current_player = static_cast<int>(json.get_int("current_player"));
+                int score_p1 = static_cast<int>(json.get_int("score_p1"));
+                int score_p2 = static_cast<int>(json.get_int("score_p2"));
+                bool done = json.get_bool("done");
+
+                env.set_state(h_edges, v_edges, boxes_p1, boxes_p2,
+                              current_player, done, score_p1, score_p2);
+
+                if (env.done()) {
+                    std::cout << "{\"edge_type\":-1,\"r\":-1,\"c\":-1}" << std::endl;
+                    continue;
+                }
+
+                azb::Action action = agent.act(env, false, temperature);
+                std::cout << "{\"edge_type\":" << action.edge_type
+                          << ",\"r\":" << action.r
+                          << ",\"c\":" << action.c << "}" << std::endl;
+            }
         }
+    };
+
+    if (use_patch_net) {
+        azb::PatchNet model(rows, cols, patch_rows, patch_cols,
+                            local_hidden, local_blocks,
+                            global_hidden, global_blocks);
+        if (!local_model_path.empty()) {
+            try {
+                model->load_and_freeze_local(local_model_path);
+            } catch (const std::exception& e) {
+                std::cerr << "[server] WARNING: Failed to load local model: "
+                          << local_model_path << " (" << e.what() << ")"
+                          << std::endl;
+            }
+        }
+        try {
+            torch::load(model, model_path);
+            model->freeze_local();
+            model->to(device);
+            model->eval();
+            std::cerr << "[server] Loaded PatchNet model: " << model_path << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "[server] WARNING: " << e.what()
+                      << " — using random weights." << std::endl;
+            model->freeze_local();
+            model->to(device);
+            model->eval();
+        }
+
+        azb::ServerNNPolicyT<azb::PatchNet> nn_policy(model, device);
+        azb::AlphaZeroBitAgent agent(env, nn_policy, mcts_sims,
+                                     c_puct, 0.3f, 0.25f, 0.20f,
+                                     false, use_dag, value_eval);
+        run_loop(agent);
+    } else {
+        azb::AlphaZeroBitNet model(rows, cols, hidden, blocks);
+        try {
+            torch::load(model, model_path);
+            model->to(device);
+            model->eval();
+            std::cerr << "[server] Loaded model: " << model_path << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "[server] WARNING: " << e.what()
+                      << " — using random weights." << std::endl;
+            model->to(device);
+            model->eval();
+        }
+
+        azb::ServerNNPolicyT<azb::AlphaZeroBitNet> nn_policy(model, device);
+        azb::AlphaZeroBitAgent agent(env, nn_policy, mcts_sims,
+                                     c_puct, 0.3f, 0.25f, 0.20f,
+                                     false, use_dag, value_eval);
+        run_loop(agent);
     }
 
     std::cerr << "[server] Shutdown." << std::endl;

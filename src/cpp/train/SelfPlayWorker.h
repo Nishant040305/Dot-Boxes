@@ -1,6 +1,7 @@
 #pragma once
 /// Self-play worker — plays complete games using AlphaZeroBitAgent
 /// and submits training data to the replay buffer.
+/// Uses ModelHandle for model-agnostic preprocessing.
 
 #include <atomic>
 #include <cmath>
@@ -10,9 +11,9 @@
 
 #include <torch/torch.h>
 #include "AlphaZeroBitAgent.h"
-#include "AlphaZeroBitNet.h"
 #include "BitBoardEnv.h"
 #include "InferenceServer.h"
+#include "ModelHandle.h"
 #include "ReplayBuffer.h"
 #include "SymmetryAugmentation.h"
 #include "TrainConfig.h"
@@ -60,7 +61,7 @@ public:
         AlphaZeroBitAgent agent(env, remote, phase_.mcts_sims, cfg_.c_puct,
                                 cfg_.dirichlet_alpha, cfg_.dirichlet_epsilon,
                                 cfg_.fpu_reduction, true, cfg_.use_dag,
-                                cfg_.value_eval);
+                                cfg_.value_eval, phase_.capture_boost);
 
         while (!stop_.load()) {
             env.reset();
@@ -97,9 +98,19 @@ public:
             samples.reserve(game_history.size() * (1 + sym_transforms_.size()));
 
             for (const auto& item : game_history) {
-                // Feature tensor via static preprocess
-                auto state_tensor = AlphaZeroBitNetImpl::preprocess(
-                    item.snapshot, cfg_.rows, cfg_.cols);
+                // Feature tensor — use the right preprocessing based on model type.
+                // For standard model: AlphaZeroBitNetImpl::preprocess
+                // For PatchNet: PatchNetImpl::preprocess (includes patch features)
+                torch::Tensor state_tensor;
+                if (cfg_.use_patch_net) {
+                    state_tensor = PatchNetImpl::preprocess(
+                        item.snapshot, cfg_.rows, cfg_.cols,
+                        cfg_.patch_rows, cfg_.patch_cols,
+                        precomputed_patches());
+                } else {
+                    state_tensor = AlphaZeroBitNetImpl::preprocess(
+                        item.snapshot, cfg_.rows, cfg_.cols);
+                }
 
                 // Build policy tensor (MCTS visit counts, normalised)
                 auto policy_tensor = torch::zeros({action_size}, torch::kFloat32);
@@ -124,10 +135,16 @@ public:
                                    std::move(legal_mask), z});
 
                 // ── Symmetry Augmentation ─────────────────────────────────
-                // Delegates to SymmetryAugmentation.h — generates all
-                // valid symmetry transforms (2 for rectangular, 7 for square).
-                augment_position(sym_transforms_, geo_, item.snapshot,
-                                 item.visits, total_visits, z, samples);
+                // NOTE: For PatchNet, augmentation operates on the full
+                // combined feature vector. The symmetry class handles
+                // the mapping correctly since edges/boxes have the same
+                // ordering in the global portion of the feature vector.
+                // We disable augmentation for PatchNet for now since
+                // patch features would need separate permutation tables.
+                if (cfg_.use_augmentation && !cfg_.use_patch_net) {
+                    augment_position(sym_transforms_, geo_, item.snapshot,
+                                     item.visits, total_visits, z, samples);
+                }
             }
 
             buffer_.push_batch(samples);
@@ -136,6 +153,21 @@ public:
     }  // run()
 
 private:
+    /// Lazy-init patch descriptors (only needed if use_patch_net is true).
+    const std::vector<PatchDesc>& precomputed_patches() {
+        if (patches_.empty() && cfg_.use_patch_net) {
+            // Recreate the PatchNet temporarily just to get the patch descriptors.
+            // This is called once per worker, so the overhead is negligible.
+            PatchNet tmp(cfg_.rows, cfg_.cols,
+                          cfg_.patch_rows, cfg_.patch_cols,
+                          cfg_.local_hidden_size, cfg_.local_num_res_blocks,
+                          cfg_.global_hidden_size, cfg_.global_num_res_blocks,
+                          cfg_.dropout);
+            patches_ = tmp->patches;
+        }
+        return patches_;
+    }
+
     int worker_id_;
     const TrainConfig& cfg_;
     const Phase& phase_;
@@ -147,6 +179,9 @@ private:
     // Pre-computed board geometry and symmetry transforms
     BoardGeometry geo_;
     std::vector<SymmetryTransform> sym_transforms_;
+
+    // Cached patch descriptors for PatchNet preprocessing
+    std::vector<PatchDesc> patches_;
 };
 
 }  // namespace azb

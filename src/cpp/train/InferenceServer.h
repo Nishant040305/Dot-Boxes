@@ -1,6 +1,7 @@
 #pragma once
 /// Batched inference server that runs in a dedicated thread.
 /// Worker threads send StateSnapshots, this thread batches them and runs the model.
+/// Supports both AlphaZeroBitNet and PatchNet via ModelHandle.
 
 #include <atomic>
 #include <cstdint>
@@ -14,7 +15,7 @@
 
 #include <torch/torch.h>
 #include "BitBoardEnv.h"
-#include "AlphaZeroBitNet.h"
+#include "ModelHandle.h"
 
 namespace azb {
 
@@ -37,9 +38,10 @@ struct InferenceResponse {
 };
 
 /// Batched inference server — runs model on a dedicated thread.
+/// Uses ModelHandle for model-agnostic preprocessing and forward pass.
 class InferenceServer {
 public:
-    InferenceServer(AlphaZeroBitNet& model, torch::Device device, int num_workers,
+    InferenceServer(ModelHandle& model, torch::Device device, int num_workers,
                     int max_batch_size = 16)
         : model_(model), device_(device), max_batch_(max_batch_size) {
         (void)num_workers;
@@ -84,20 +86,15 @@ public:
             }
 
             // Brief spin-wait to accumulate more requests into the batch.
-            // This is critical: without this, we process batches of size 1,
-            // wasting parallelism. With this, workers have time to submit
-            // their requests before we run inference.
             auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(200);
             while (static_cast<int>(batch.size()) < max_batch_) {
                 std::unique_lock<std::mutex> lock(req_mu_);
                 if (requests_.empty()) {
-                    // Wait briefly for more
                     auto now = std::chrono::steady_clock::now();
                     if (now >= deadline) break;
                     req_cv_.wait_until(lock, deadline,
                         [&] { return !requests_.empty() || stopped_.load(); });
                 }
-                // Drain whatever is available
                 while (!requests_.empty() && static_cast<int>(batch.size()) < max_batch_) {
                     batch.push_back(std::move(requests_.front()));
                     requests_.pop();
@@ -117,33 +114,21 @@ public:
         req_cv_.notify_all();
     }
 
-    /// Reload model weights from file.
-    void reload_weights(const std::string& path) {
-        try {
-            torch::load(model_, path);
-            model_->to(device_);
-            model_->eval();
-            std::cout << "[InferenceServer] Reloaded model from " << path << std::endl;
-        } catch (const std::exception& e) {
-            std::cerr << "[InferenceServer] Failed to reload: " << e.what() << std::endl;
-        }
-    }
-
 private:
     void process_batch(const std::vector<InferenceRequest>& batch) {
         const int bs = static_cast<int>(batch.size());
 
-        // Build batch input
+        // Build batch input via ModelHandle::preprocess
         std::vector<torch::Tensor> tensors;
         tensors.reserve(bs);
         for (const auto& req : batch) {
-            tensors.push_back(model_->preprocess(req.state));
+            tensors.push_back(model_.preprocess(req.state));
         }
         auto input = torch::stack(tensors).to(device_);
 
-        // Inference
+        // Inference via ModelHandle::forward
         torch::NoGradGuard no_grad;
-        auto [logits, values] = model_->forward(input);
+        auto [logits, values] = model_.forward(input);
 
         // Apply softmax to get probabilities
         auto probs = torch::softmax(logits, /*dim=*/1).cpu();
@@ -163,7 +148,7 @@ private:
         }
     }
 
-    AlphaZeroBitNet& model_;
+    ModelHandle& model_;
     torch::Device device_;
     int max_batch_;
 

@@ -1,9 +1,9 @@
-static azb::TrainConfig make_4x3_config() {
+static azb::TrainConfig make_2x2_config() {
     azb::TrainConfig cfg;
 
     // ── Board ────────────────────────────────────────────────
-    cfg.rows = 4;
-    cfg.cols = 3;
+    cfg.rows = 2;
+    cfg.cols = 2;
 
     // ── Network ──────────────────────────────────────────────
     cfg.hidden_size    = 128;
@@ -37,29 +37,15 @@ static azb::TrainConfig make_4x3_config() {
 
     // ── Checkpoints ──────────────────────────────────────────
     cfg.keep_checkpoints = 5;
-    cfg.model_name       = "alphazero_4x3";
-    cfg.model_dir        = "../models/_4x3";
+    cfg.model_name       = "alphazero_2x2";
+    cfg.model_dir        = "../models/_2x2";
 
     // __ Evaluation Matrix ____________________________________
     cfg.value_eval = azb::ValueEval::kScoreDiffTanh;
     
     // ── Phases ───────────────────────────────────────────────
     cfg.phases = {
-
-        // Phase 1 — Stabilize basics
-        { "Bootstrap", 20, 200, 300, 2, 0.003f, 6, 1.0f, 0.2f, 0.0f },
-
-        // Phase 2 — Learn chains properly
-        { "ChainAware", 50, 300, 250, 3, 0.001f, 5, 0.8f, 0.05f, 0.0f },
-
-        // Phase 3 — Deep search pressure
-        { "DeepSearch", 30, 600, 200, 4, 0.0005f, 4, 0.6f, 0.03f, 0.0f },
-
-        // Phase 4 — Near-perfect policy
-        { "Mastery", 20, 800, 150, 5, 0.0001f, 3, 0.4f, 0.01f, 0.0f },
-
-        // Phase 5 — Polish with improved training loop
-        { "Polish", 30, 1000, 200, 3, 0.0001f, 3, 0.4f, 0.01f, 0.0f },
+        { "SinglePhase", 200, 800, 100, 2, 0.003f, 6, 1.0f, 0.2f, 0.0f },
     };
 
     return cfg;

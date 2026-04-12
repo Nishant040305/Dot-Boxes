@@ -10,8 +10,28 @@ namespace azb {
 AlphaZeroTrainer::AlphaZeroTrainer(const TrainConfig& cfg)
     : cfg_(cfg),
       device_(torch::kCPU),
-      model_(cfg.rows, cfg.cols, cfg.hidden_size, cfg.num_res_blocks, cfg.dropout),
       replay_buffer_(cfg.buffer_capacity) {
+
+    // ── Build model via ModelHandle factories ──
+    if (cfg_.use_patch_net) {
+        model_ = make_patch_model(
+            cfg.rows, cfg.cols,
+            cfg.patch_rows, cfg.patch_cols,
+            cfg.local_hidden_size, cfg.local_num_res_blocks,
+            cfg.global_hidden_size, cfg.global_num_res_blocks,
+            cfg.dropout, cfg.local_model_path);
+        std::cout << "[Trainer] Using PatchNet ("
+                  << cfg.patch_rows << "x" << cfg.patch_cols
+                  << " patches on " << cfg.rows << "x" << cfg.cols
+                  << " board)" << std::endl;
+    } else {
+        model_ = make_standard_model(
+            cfg.rows, cfg.cols,
+            cfg.hidden_size, cfg.num_res_blocks, cfg.dropout);
+        std::cout << "[Trainer] Using AlphaZeroBitNet ("
+                  << cfg.hidden_size << "h, "
+                  << cfg.num_res_blocks << " blocks)" << std::endl;
+    }
 
     if (torch::cuda::is_available()) {
         device_ = torch::Device(torch::kCUDA);
@@ -19,14 +39,14 @@ AlphaZeroTrainer::AlphaZeroTrainer(const TrainConfig& cfg)
     } else {
         std::cout << "[Trainer] Using CPU" << std::endl;
     }
-    model_->to(device_);
+    model_.to(device_);
 
     if (cfg_.resume) {
         const auto path = model_path();
         if (std::filesystem::exists(path)) {
             try {
-                torch::load(model_, path);
-                model_->to(device_);
+                model_.load(path);
+                model_.to(device_);
                 std::cout << "[Trainer] Loaded model from " << path << std::endl;
             } catch (const std::exception& e) {
                 std::cerr << "[Trainer] Failed to load model: " << e.what()
@@ -55,7 +75,17 @@ void AlphaZeroTrainer::train() {
              << ",\"hidden_size\":" << cfg_.hidden_size
              << ",\"num_res_blocks\":" << cfg_.num_res_blocks
              << ",\"value_eval\":\"" << azb::value_eval_name(cfg_.value_eval) << "\""
-             << "}\n";
+             << ",\"use_patch_net\":" << (cfg_.use_patch_net ? "true" : "false");
+        if (cfg_.use_patch_net) {
+            info << ",\"patch_rows\":" << cfg_.patch_rows
+                 << ",\"patch_cols\":" << cfg_.patch_cols
+                 << ",\"local_hidden_size\":" << cfg_.local_hidden_size
+                 << ",\"local_num_res_blocks\":" << cfg_.local_num_res_blocks
+                 << ",\"global_hidden_size\":" << cfg_.global_hidden_size
+                 << ",\"global_num_res_blocks\":" << cfg_.global_num_res_blocks
+                 << ",\"local_model_path\":\"" << cfg_.local_model_path << "\"";
+        }
+        info << "}\n";
     }
 
     // If no phases provided, create a default one from existing config
@@ -95,8 +125,7 @@ void AlphaZeroTrainer::train() {
     }
 
     // Persistent optimizer
-    // Note: We'll update the LR for each phase
-    torch::optim::Adam optimizer(model_->parameters(),
+    torch::optim::Adam optimizer(model_.parameters(),
                                  torch::optim::AdamOptions(cfg_.phases.empty() ? cfg_.learning_rate : cfg_.phases[0].lr));
     if (cfg_.resume && std::filesystem::exists(optim_path)) {
         try {
@@ -144,23 +173,9 @@ void AlphaZeroTrainer::train() {
             // ── Self-Play Phase ──────────────────────────────────────────
 
             // Create inference model (copy of training model)
-            AlphaZeroBitNet infer_model(cfg_.rows, cfg_.cols, cfg_.hidden_size,
-                                        cfg_.num_res_blocks, cfg_.dropout);
-            {
-                torch::NoGradGuard no_grad;
-                auto src = model_->named_parameters();
-                for (auto& p : infer_model->named_parameters()) {
-                    auto* found = src.find(p.key());
-                    if (found) p.value().copy_(*found);
-                }
-                auto src_buf = model_->named_buffers();
-                for (auto& b : infer_model->named_buffers()) {
-                    auto* found = src_buf.find(b.key());
-                    if (found) b.value().copy_(*found);
-                }
-            }
-            infer_model->to(device_);
-            infer_model->eval();
+            ModelHandle infer_model = model_.clone(cfg_);
+            infer_model.to(device_);
+            infer_model.eval_mode();
 
             InferenceServer server(infer_model, device_, cfg_.num_workers,
                                    cfg_.max_inference_batch);
@@ -210,7 +225,7 @@ void AlphaZeroTrainer::train() {
             }
 
             std::cout << "  Training..." << std::endl;
-            model_->train();
+            model_.train_mode();
             float total_loss = 0.0f;
             for (int epoch = 0; epoch < phase.epochs; epoch++) {
                 total_loss += train_epoch(optimizer);
@@ -221,10 +236,10 @@ void AlphaZeroTrainer::train() {
             
             // Save iteration-specific model
             std::string iter_path = cfg_.model_dir + "/checkpoint_iter" + std::to_string(iter + 1) + ".pt";
-            torch::save(model_, iter_path);
+            model_.save(iter_path);
             
             // Overwrite latest main model
-            torch::save(model_, model_path());
+            model_.save(model_path());
             
             // Register in history
             cfg_.model_history.push_back(iter_path);
@@ -268,58 +283,54 @@ void AlphaZeroTrainer::train() {
 }
 
 float AlphaZeroTrainer::train_epoch(torch::optim::Adam& optimizer) {
-    auto batch = replay_buffer_.sample(cfg_.batch_size);
-    if (batch.empty()) return 0.0f;
+    const int buf_size = replay_buffer_.size();
+    if (buf_size < cfg_.batch_size) return 0.0f;
 
-    std::vector<torch::Tensor> states, policies, masks;
-    std::vector<float> values;
-    states.reserve(batch.size());
-    policies.reserve(batch.size());
-    masks.reserve(batch.size());
-    values.reserve(batch.size());
+    const int num_batches = std::min(buf_size / cfg_.batch_size, 256);
+    float total_loss = 0.0f;
 
-    for (auto& sample : batch) {
-        states.push_back(sample.state);
-        policies.push_back(sample.policy);
-        masks.push_back(sample.legal_mask);
-        values.push_back(sample.value);
+    for (int b = 0; b < num_batches; b++) {
+        auto batch = replay_buffer_.sample(cfg_.batch_size);
+        if (batch.empty()) continue;
+
+        std::vector<torch::Tensor> states, policies, masks;
+        std::vector<float> values;
+        states.reserve(batch.size());
+        policies.reserve(batch.size());
+        masks.reserve(batch.size());
+        values.reserve(batch.size());
+
+        for (auto& sample : batch) {
+            states.push_back(sample.state);
+            policies.push_back(sample.policy);
+            masks.push_back(sample.legal_mask);
+            values.push_back(sample.value);
+        }
+
+        auto states_t   = torch::stack(states).to(device_);
+        auto policies_t = torch::stack(policies).to(device_);
+        auto masks_t    = torch::stack(masks).to(device_);
+        auto values_t   = torch::tensor(values, torch::kFloat32).unsqueeze(1).to(device_);
+
+        auto [logits, out_value] = model_.forward(states_t);
+
+        auto v_loss = torch::mse_loss(out_value, values_t);
+
+        auto masked_logits = logits + (masks_t - 1.0f) * 1e9f;
+        auto log_probs = torch::log_softmax(masked_logits, /*dim=*/1);
+        auto p_loss = -(policies_t * log_probs).sum() / static_cast<float>(cfg_.batch_size);
+
+        auto loss = 1.5f * v_loss + p_loss;
+
+        optimizer.zero_grad();
+        loss.backward();
+        torch::nn::utils::clip_grad_norm_(model_.parameters(), 1.0f);
+        optimizer.step();
+
+        total_loss += loss.item<float>();
     }
 
-    auto states_t   = torch::stack(states).to(device_);
-    auto policies_t = torch::stack(policies).to(device_);
-    auto masks_t    = torch::stack(masks).to(device_);   // (batch, action_size), 1.0=legal
-    auto values_t   = torch::tensor(values, torch::kFloat32).unsqueeze(1).to(device_);
-
-    // Forward
-    auto [logits, out_value] = model_->forward(states_t);
-
-    // ── Value loss ───────────────────────────────────────────────────────
-    // Value targets are exactly ±1 or 0. MSE is appropriate here.
-    auto v_loss = torch::mse_loss(out_value, values_t);
-
-    // ── Policy loss (masked cross-entropy) ───────────────────────────────
-    // Set illegal-move logits to -1e9 BEFORE log_softmax.
-    // This ensures the network's gradient on illegal moves is ~zero,
-    // and the log_softmax denominator is not inflated by illegal actions.
-    // Without this, every gradient step wastes capacity on impossible moves
-    // and the CE loss underestimates legal-move probabilities.
-    auto masked_logits = logits + (masks_t - 1.0f) * 1e9f;  // illegal → -1e9
-    auto log_probs = torch::log_softmax(masked_logits, /*dim=*/1);
-    // Standard AlphaZero cross-entropy: -sum(pi * log p) / batch
-    auto p_loss = -(policies_t * log_probs).sum() / static_cast<float>(cfg_.batch_size);
-
-    // Combine: weight value loss x1.5 to give value head sufficient signal
-    // relative to policy head (policy has more outputs = larger raw gradient)
-    auto loss = 1.5f * v_loss + p_loss;
-
-    // Backward
-    optimizer.zero_grad();
-    loss.backward();
-    // Gradient clipping for stability
-    torch::nn::utils::clip_grad_norm_(model_->parameters(), 1.0f);
-    optimizer.step();
-
-    return loss.item<float>();
+    return total_loss / std::max(num_batches, 1);
 }
 
 

@@ -60,7 +60,8 @@ public:
                       float fpu_reduction = 0.25f,
                       bool add_noise = true,
                       bool use_dag = true,
-                      ValueEval value_eval = ValueEval::kWinLoss);
+                      ValueEval value_eval = ValueEval::kWinLoss,
+                      float capture_boost = 0.0f);
 
     Action act(const BitBoardEnv& env, bool return_probs = false, float temperature = 1e-3f);
     const std::unordered_map<uint32_t, int>& last_visit_counts() const {
@@ -114,8 +115,11 @@ private:
         return {lo, hi};
     }
 
+    float capture_boost_ = 0.0f;
+
     void precompute_edge_bits();
     NodeState apply_action(const NodeState& state, const Action& action) const;
+    int count_captures(const NodeState& state, const Action& action) const;
     std::vector<Action> legal_actions(const NodeState& state) const;
     std::vector<float> build_features(const NodeState& state) const;
     bool try_expand(Node& node, bool is_root, float& out_value);

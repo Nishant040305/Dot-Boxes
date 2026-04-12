@@ -995,3 +995,259 @@ body::before {
 .hidden {
     display: none !important;
 }
+
+/* ═══════════════════════════════════════════════════
+       CATEGORY FILTER
+       ═══════════════════════════════════════════════════ */
+.category-filter {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+    padding: 4px;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+}
+
+.cat-btn {
+    flex: 1;
+    padding: 8px 12px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    letter-spacing: 0.02em;
+}
+
+.cat-btn:hover {
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.cat-btn.selected {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.cat-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+/* ═══════════════════════════════════════════════════
+       AGENT BADGES (NEW, PATCH, etc.)
+       ═══════════════════════════════════════════════════ */
+.agent-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    font-size: 0.58rem;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 4px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    animation: badgePulse 2.5s ease-in-out infinite;
+}
+
+.agent-badge.badge-new {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.08));
+    color: var(--success);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.agent-badge.badge-patch {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(245, 158, 11, 0.08));
+    color: var(--warning);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+@keyframes badgePulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* Category indicator on agent cards */
+.agent-category-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 4px;
+}
+
+/* ═══════════════════════════════════════════════════
+       ARCHITECTURE INFO PANEL (PatchNet)
+       ═══════════════════════════════════════════════════ */
+.arch-info-panel {
+    margin-top: 14px;
+    padding: 16px 18px;
+    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.06), rgba(99, 102, 241, 0.04));
+    border: 1px solid rgba(245, 158, 11, 0.15);
+    animation: archSlideIn 0.3s ease;
+}
+
+@keyframes archSlideIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.arch-info-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--warning);
+    margin-bottom: 8px;
+}
+
+.arch-info-body {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 12px;
+}
+
+.arch-info-body strong {
+    color: var(--text-primary);
+}
+
+.arch-info-diagram {
+    padding: 10px 0;
+    overflow-x: auto;
+}
+
+.arch-flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+}
+
+.arch-node {
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-align: center;
+    white-space: nowrap;
+    position: relative;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+}
+
+.arch-node.patch {
+    background: rgba(99, 102, 241, 0.08);
+    border-color: rgba(99, 102, 241, 0.2);
+    color: var(--accent-light);
+}
+
+.arch-node.local {
+    background: rgba(236, 72, 153, 0.08);
+    border-color: rgba(236, 72, 153, 0.2);
+    color: var(--pink-light);
+}
+
+.arch-node.global {
+    background: rgba(245, 158, 11, 0.08);
+    border-color: rgba(245, 158, 11, 0.2);
+    color: var(--warning);
+}
+
+.arch-node.output {
+    background: rgba(16, 185, 129, 0.08);
+    border-color: rgba(16, 185, 129, 0.2);
+    color: var(--success);
+}
+
+.arch-arrow {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 300;
+}
+
+.arch-tag {
+    display: block;
+    font-size: 0.52rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-top: 3px;
+}
+
+.arch-tag.frozen {
+    color: rgba(236, 72, 153, 0.7);
+}
+
+.arch-tag.train {
+    color: rgba(245, 158, 11, 0.8);
+}
+
+/* ═══════════════════════════════════════════════════
+       MODEL TYPE INDICATOR FOR NEURAL AGENTS
+       ═══════════════════════════════════════════════════ */
+.agent-option.model-patch {
+    border-style: dashed;
+}
+
+.agent-option.model-patch.selected {
+    border-style: solid;
+    border-color: var(--warning);
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.06), rgba(99, 102, 241, 0.03));
+    box-shadow: 0 0 24px rgba(245, 158, 11, 0.08);
+}
+
+.agent-option.model-patch.selected::after {
+    color: var(--warning);
+}
+
+/* Agent card model type label */
+.agent-model-label {
+    display: inline-block;
+    font-size: 0.58rem;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    vertical-align: middle;
+    letter-spacing: 0.04em;
+}
+
+.agent-model-label.standard {
+    background: rgba(99, 102, 241, 0.12);
+    color: var(--accent-light);
+}
+
+.agent-model-label.patch {
+    background: rgba(245, 158, 11, 0.12);
+    color: var(--warning);
+}
+
+@media (max-width: 600px) {
+    .arch-flow {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .arch-arrow {
+        display: none;
+    }
+    .category-filter {
+        flex-wrap: wrap;
+    }
+}

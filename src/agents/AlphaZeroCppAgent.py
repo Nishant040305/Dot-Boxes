@@ -45,8 +45,12 @@ class AlphaZeroCppAgent(Agent):
         if model_path is None:
             current_dir = os.path.dirname(os.path.abspath(__file__))
             root_dir = os.path.dirname(os.path.dirname(current_dir))
-            models_dir = os.path.join(root_dir, 'models')
-            model_path = os.path.join(models_dir, f"alphazero_{self.rows}x{self.cols}.pt")
+            cpp_model_path = os.path.join(root_dir, 'src', 'cpp', 'models', f"_{self.rows}x{self.cols}", f"alphazero_{self.rows}x{self.cols}.pt")
+            if os.path.exists(cpp_model_path):
+                model_path = cpp_model_path
+            else:
+                models_dir = os.path.join(root_dir, 'models')
+                model_path = os.path.join(models_dir, f"alphazero_{self.rows}x{self.cols}.pt")
 
         if server_binary is None:
             server_binary = self._find_server_binary()
@@ -56,13 +60,31 @@ class AlphaZeroCppAgent(Agent):
         # a full module archive, not a plain dict), so we use the sidecar instead.
         model_dir = os.path.dirname(model_path)
         info_path = os.path.join(model_dir, 'model_info.json')
+        use_patch_net = False
+        patch_rows = None
+        patch_cols = None
+        local_hidden = None
+        local_blocks = None
+        global_hidden = None
+        global_blocks = None
+        local_model_path = None
+
         if os.path.exists(info_path):
             try:
                 with open(info_path, 'r') as f:
                     info = json.load(f)
+                print(info)
                 hidden_size = info.get('hidden_size', hidden_size)
                 num_res_blocks = info.get('num_res_blocks', num_res_blocks)
                 value_eval = info.get('value_eval', value_eval)
+                use_patch_net = info.get('use_patch_net', False)
+                patch_rows = info.get('patch_rows')
+                patch_cols = info.get('patch_cols')
+                local_hidden = info.get('local_hidden_size')
+                local_blocks = info.get('local_num_res_blocks')
+                global_hidden = info.get('global_hidden_size')
+                global_blocks = info.get('global_num_res_blocks')
+                local_model_path = info.get('local_model_path')
                 print(f"[AlphaZeroCppAgent] Detected architecture: "
                       f"hidden={hidden_size}, blocks={num_res_blocks}, "
                       f"value_eval={value_eval}")
@@ -72,7 +94,15 @@ class AlphaZeroCppAgent(Agent):
         self._proc = self._start_server(
             server_binary, self.rows, self.cols, model_path,
             n_simulations, hidden_size, num_res_blocks, use_dag,
-            value_eval
+            value_eval,
+            use_patch_net=use_patch_net,
+            patch_rows=patch_rows,
+            patch_cols=patch_cols,
+            local_hidden=local_hidden,
+            local_blocks=local_blocks,
+            global_hidden=global_hidden,
+            global_blocks=global_blocks,
+            local_model_path=local_model_path,
         )
 
         # Register cleanup
@@ -97,7 +127,11 @@ class AlphaZeroCppAgent(Agent):
         )
 
     def _start_server(self, binary, rows, cols, model_path,
-                      n_sims, hidden, blocks, use_dag, value_eval):
+                      n_sims, hidden, blocks, use_dag, value_eval,
+                      use_patch_net=False, patch_rows=None, patch_cols=None,
+                      local_hidden=None, local_blocks=None,
+                      global_hidden=None, global_blocks=None,
+                      local_model_path=None):
         """Launch the C++ server process."""
         cmd = [
             binary,
@@ -109,6 +143,42 @@ class AlphaZeroCppAgent(Agent):
             '--blocks', str(blocks),
             '--value-eval', str(value_eval),
         ]
+        if use_patch_net:
+            cmd.append('--patch')
+            if patch_rows is not None:
+                cmd.extend(['--patch-rows', str(patch_rows)])
+            if patch_cols is not None:
+                cmd.extend(['--patch-cols', str(patch_cols)])
+            if local_hidden is not None:
+                cmd.extend(['--local-hidden', str(local_hidden)])
+            if local_blocks is not None:
+                cmd.extend(['--local-blocks', str(local_blocks)])
+            if global_hidden is not None:
+                cmd.extend(['--global-hidden', str(global_hidden)])
+            if global_blocks is not None:
+                cmd.extend(['--global-blocks', str(global_blocks)])
+            if local_model_path:
+                resolved = None
+                if os.path.isabs(local_model_path):
+                    resolved = local_model_path
+                else:
+                    model_dir = os.path.dirname(model_path)
+                    repo_root = os.path.abspath(
+                        os.path.join(os.path.dirname(__file__), '..', '..')
+                    )
+                    candidates = [
+                        os.path.abspath(os.path.join(model_dir, local_model_path)),
+                        os.path.abspath(os.path.join(repo_root, local_model_path)),
+                    ]
+                    for cand in candidates:
+                        if os.path.exists(cand):
+                            resolved = cand
+                            break
+                if resolved:
+                    cmd.extend(['--local-model', resolved])
+                else:
+                    print(f"[AlphaZeroCppAgent] WARNING: local_model_path not found: "
+                          f"{local_model_path}. Continuing without it.")
         if not use_dag:
             cmd.append('--no-dag')
 

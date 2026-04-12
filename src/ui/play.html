@@ -38,8 +38,48 @@
                     </svg>
                     <span id="agent1-title">Choose Your Opponent</span>
                 </div>
+                <!-- Category filter tabs -->
+                <div class="category-filter" id="category-filter-1">
+                    <button class="cat-btn selected" data-cat="all" onclick="filterAgents('all', 1)">All</button>
+                    <button class="cat-btn" data-cat="basic" onclick="filterAgents('basic', 1)">
+                        <span class="cat-dot" style="background:#10b981;"></span>Basic
+                    </button>
+                    <button class="cat-btn" data-cat="search" onclick="filterAgents('search', 1)">
+                        <span class="cat-dot" style="background:#f59e0b;"></span>Search
+                    </button>
+                    <button class="cat-btn" data-cat="neural" onclick="filterAgents('neural', 1)">
+                        <span class="cat-dot" style="background:#6366f1;"></span>Neural
+                    </button>
+                </div>
                 <div class="agent-grid" id="agent-grid">
                     <!-- Populated by JS -->
+                </div>
+                <!-- PatchNet architecture info (shown when PatchNet is selected) -->
+                <div class="arch-info-panel hidden" id="arch-info-1">
+                    <div class="arch-info-header">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                            <path d="M2 17l10 5 10-5"/>
+                            <path d="M2 12l10 5 10-5"/>
+                        </svg>
+                        Hierarchical PatchNet Architecture
+                    </div>
+                    <div class="arch-info-body">
+                        Uses <strong>frozen pre-trained local models</strong> (e.g. 3×3) to extract tactical features 
+                        from overlapping board patches, then a <strong>trainable global aggregator</strong> 
+                        fuses these signals for strategic play. Reduces compute by ~60%.
+                    </div>
+                    <div class="arch-info-diagram">
+                        <div class="arch-flow">
+                            <div class="arch-node patch">Patches</div>
+                            <div class="arch-arrow">→</div>
+                            <div class="arch-node local">Local NN<span class="arch-tag frozen">FROZEN</span></div>
+                            <div class="arch-arrow">→</div>
+                            <div class="arch-node global">Global Aggregator<span class="arch-tag train">TRAINABLE</span></div>
+                            <div class="arch-arrow">→</div>
+                            <div class="arch-node output">Policy + Value</div>
+                        </div>
+                    </div>
                 </div>
             </div>
 

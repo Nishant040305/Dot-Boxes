@@ -19,6 +19,7 @@ struct Phase {
     int temp_threshold = 8;
     float temp_explore = 1.0f;
     float temp_exploit = 0.3f;
+    float capture_boost = 0.0f;  // prior boost for capture moves (0 = off)
 };
 
 struct TrainConfig {
@@ -30,6 +31,16 @@ struct TrainConfig {
     int hidden_size       = 256;
     int num_res_blocks    = 6;
     double dropout        = 0.1;
+
+    // ── PatchNet (hierarchical local→global) ──
+    bool use_patch_net       = false;
+    int patch_rows           = 3;   // local patch board rows
+    int patch_cols           = 3;   // local patch board cols
+    int local_hidden_size    = 128; // frozen local model hidden size
+    int local_num_res_blocks = 6;   // frozen local model depth
+    int global_hidden_size   = 192; // global aggregator hidden size
+    int global_num_res_blocks = 4;  // global aggregator depth
+    std::string local_model_path;   // path to pre-trained local model weights
 
     // Phase management
     std::vector<Phase> phases;
@@ -58,7 +69,7 @@ struct TrainConfig {
     float dirichlet_epsilon = 0.25f;
     float fpu_reduction     = 0.25f;
     bool use_dag            = false;
-
+    bool use_augmentation = true;
     // Temperature schedule
     int temp_threshold    = 10;   // moves < this use temp=1, else temp=0
     float temp_explore    = 1.0f;
@@ -77,9 +88,9 @@ struct TrainConfig {
     /// Helper to get default phases
     static std::vector<Phase> get_default_phases() {
         return {
-            {"Bootstrap", 15, 200, 100, 10, 0.002f, 8, 1.0f, 0.3f},
-            {"Refinement", 20, 400, 100, 15, 0.001f, 6, 0.8f, 0.1f},
-            {"Mastery", 15, 600, 100, 20, 0.0003f, 4, 0.8f, 0.0f}
+            {"Bootstrap", 15, 200, 100, 2, 0.002f, 8, 1.0f, 0.3f, 0.0f},
+            {"Refinement", 20, 400, 100, 3, 0.001f, 6, 0.8f, 0.1f, 0.0f},
+            {"Mastery", 15, 600, 100, 4, 0.0003f, 4, 0.8f, 0.0f, 0.0f}
         };
     }
 };
