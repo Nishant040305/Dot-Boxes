@@ -16,7 +16,8 @@ AlphaZeroBitAgent::AlphaZeroBitAgent(const BitBoardEnv& env,
                                      float fpu_reduction,
                                      bool add_noise,
                                      bool use_dag,
-                                     ValueEval value_eval)
+                                     ValueEval value_eval,
+                                     float capture_boost)
     : rows_(env.rows()),
       cols_(env.cols()),
       n_h_edges_((rows_ + 1) * cols_),
@@ -31,6 +32,7 @@ AlphaZeroBitAgent::AlphaZeroBitAgent(const BitBoardEnv& env,
       use_dag_(use_dag),
       value_eval_(value_eval),
       total_boxes_(env.total_boxes()),
+      capture_boost_(capture_boost),
       model_(model),
       rng_(std::random_device{}()) {
     precompute_edge_bits();

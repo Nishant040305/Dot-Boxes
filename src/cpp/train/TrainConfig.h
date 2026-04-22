@@ -46,7 +46,7 @@ struct TrainConfig {
     std::vector<Phase> phases;
 
     // Self-play (defaults if not in phase)
-    int num_workers       = 64;
+    int num_workers       = 16;
     int mcts_sims         = 400;
     int episodes_per_iter = 100;
 
@@ -60,7 +60,7 @@ struct TrainConfig {
     bool resume           = false;
 
     // Model history
-    int keep_checkpoints  = 5;      // Keep last N checkpoints
+    int keep_checkpoints  = 0;      // Keep last N checkpoints
     std::vector<std::string> model_history;
 
     // MCTS
@@ -76,7 +76,7 @@ struct TrainConfig {
     float temp_exploit    = 0.3f;
 
     // Value target evaluation
-    ValueEval value_eval  = ValueEval::kWinLoss;
+    ValueEval value_eval  = ValueEval::kScoreDiffScaled;
 
     // Paths
     std::string model_name = "alphazero";
