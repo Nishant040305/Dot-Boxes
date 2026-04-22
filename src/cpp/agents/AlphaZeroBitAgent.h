@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <random>
 #include <unordered_map>
 #include <utility>
@@ -83,14 +84,47 @@ private:
     struct Node {
         NodeState state;
         struct Edge {
+            uint32_t action_idx;
             Node* node;
             float prior;
         };
-        std::unordered_map<uint32_t, Edge> children;
+        // Flat vector instead of unordered_map — cache-friendly for typical 5-24 children
+        std::vector<Edge> children;
         int visits = 0;
         float value_sum = 0.0f;
         enum class Status { kUnexpanded, kPending, kExpanded } status = Status::kUnexpanded;
         uint64_t pending_id = 0;
+
+        // Lookup child by action index (linear scan — fast for small N)
+        Edge* find_child(uint32_t idx) {
+            for (auto& e : children) {
+                if (e.action_idx == idx) return &e;
+            }
+            return nullptr;
+        }
+    };
+
+    /// Arena allocator for MCTS nodes — eliminates per-node new/delete overhead.
+    /// Allocates in contiguous blocks for better cache locality.
+    class NodeArena {
+    public:
+        Node* alloc() {
+            if (blocks_.empty() || next_ >= block_size_) {
+                blocks_.push_back(std::make_unique<Node[]>(block_size_));
+                next_ = 0;
+            }
+            Node* n = &blocks_.back()[next_++];
+            *n = Node{};  // zero-init
+            return n;
+        }
+        void reset() {
+            blocks_.clear();
+            next_ = 0;
+        }
+    private:
+        static constexpr int block_size_ = 2048;
+        std::vector<std::unique_ptr<Node[]>> blocks_;
+        int next_ = 0;
     };
 
     float node_value(const Node& node) const {
@@ -158,7 +192,8 @@ private:
     // DAG Transposition Table: board state → Node* (cleared per act)
     std::unordered_map<StateKey128, Node*, StateKey128Hasher> dag_table_;
 
-    std::vector<Node*> owned_nodes_;
+    // Arena allocator for MCTS nodes (replaces individual new/delete)
+    NodeArena arena_;
 };
 
 }  // namespace azb

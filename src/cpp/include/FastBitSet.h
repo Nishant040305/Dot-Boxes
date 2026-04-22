@@ -2,13 +2,18 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <vector>
+#include <cstring>
 
 namespace azb {
 
+/// Maximum inline words for stack-allocated bitset storage.
+/// 2 words = 128 bits — covers all practical Dots-and-Boxes boards
+/// (up to ~11x11 = 121 edges per type). Zero heap allocations.
+static constexpr size_t kMaxInlineWords = 2;
+
 class FastBitset {
 private:
-    std::vector<uint64_t> data_;
+    uint64_t data_[kMaxInlineWords]{};
     size_t num_bits_ = 0;
     size_t num_words_ = 0;
     uint64_t last_mask_ = ~0ULL;
@@ -19,7 +24,8 @@ public:
     void resize(size_t bits) {
         num_bits_ = bits;
         num_words_ = (bits + 63) >> 6;
-        data_.assign(num_words_, 0ULL);
+        // static_assert-safe: all practical boards fit in kMaxInlineWords
+        std::memset(data_, 0, sizeof(data_));
         if (num_words_ == 0) {
             last_mask_ = ~0ULL;
         } else {
@@ -31,7 +37,9 @@ public:
     size_t size() const { return num_bits_; }
     size_t num_words() const { return num_words_; }
 
-    void clear() { std::fill(data_.begin(), data_.end(), 0ULL); }
+    void clear() {
+        for (size_t i = 0; i < num_words_; i++) data_[i] = 0ULL;
+    }
 
     void set(size_t pos) { data_[pos >> 6] |= (1ULL << (pos & 63)); }
     void reset(size_t pos) { data_[pos >> 6] &= ~(1ULL << (pos & 63)); }
@@ -39,8 +47,8 @@ public:
 
     void set_all() {
         if (num_words_ == 0) return;
-        std::fill(data_.begin(), data_.end(), ~0ULL);
-        data_.back() &= last_mask_;
+        for (size_t i = 0; i < num_words_; i++) data_[i] = ~0ULL;
+        data_[num_words_ - 1] &= last_mask_;
     }
 
     bool contains_all(const FastBitset& mask) const {
@@ -52,14 +60,15 @@ public:
 
     size_t popcount() const {
         size_t total = 0;
-        for (uint64_t v : data_) total += static_cast<size_t>(__builtin_popcountll(v));
+        for (size_t i = 0; i < num_words_; i++)
+            total += static_cast<size_t>(__builtin_popcountll(data_[i]));
         return total;
     }
 
     FastBitset bit_not() const {
         FastBitset out(*this);
         for (size_t i = 0; i < num_words_; i++) out.data_[i] = ~out.data_[i];
-        if (num_words_ > 0) out.data_.back() &= last_mask_;
+        if (num_words_ > 0) out.data_[num_words_ - 1] &= last_mask_;
         return out;
     }
 
@@ -85,7 +94,7 @@ public:
 
     void and_not(const FastBitset& other) {
         for (size_t i = 0; i < num_words_; i++) data_[i] &= ~other.data_[i];
-        if (num_words_ > 0) data_.back() &= last_mask_;
+        if (num_words_ > 0) data_[num_words_ - 1] &= last_mask_;
     }
 
     template <typename F>
@@ -100,8 +109,8 @@ public:
         }
     }
 
-    uint64_t* raw() { return data_.data(); }
-    const uint64_t* raw() const { return data_.data(); }
+    uint64_t* raw() { return data_; }
+    const uint64_t* raw() const { return data_; }
 
     /// 128-bit hash: two independent 64-bit polynomial hashes over all words.
     /// Collision-safe even for boards up to 20x20 (~1240 bits of state).
@@ -109,12 +118,12 @@ public:
         // Two independent FNV-like hashes with different primes
         uint64_t h0 = 0xcbf29ce484222325ULL ^ num_bits_;
         uint64_t h1 = 0x9e3779b97f4a7c15ULL ^ num_bits_;
-        for (uint64_t w : data_) {
-            h0 ^= w;
+        for (size_t i = 0; i < num_words_; i++) {
+            h0 ^= data_[i];
             h0 *= 0x100000001b3ULL;       // FNV prime
             h0 ^= h0 >> 33;
 
-            h1 ^= w;
+            h1 ^= data_[i];
             h1 *= 0x517cc1b727220a95ULL;  // different multiplier
             h1 ^= h1 >> 27;
             h1 *= 0x94d049bb133111ebULL;

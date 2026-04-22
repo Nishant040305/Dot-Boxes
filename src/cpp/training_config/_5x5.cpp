@@ -68,9 +68,9 @@ static azb::TrainConfig make_5x5_config() {
     //  DIAGNOSTIC: augmentation disabled to test if it's corrupting
     //  training data.  Without 8× aug, each game produces ~60 samples.
     //  Buffer sized for ~500 games of data.
-    cfg.use_augmentation = false;
+    cfg.use_augmentation = true;
     cfg.buffer_capacity = 60000;
-    cfg.buffer_grow     = 2000;
+    cfg.buffer_grow     = 0;
 
     // ════════════════════════════════════════════════════════
     //  PARALLELISM
@@ -81,7 +81,7 @@ static azb::TrainConfig make_5x5_config() {
     // ════════════════════════════════════════════════════════
     //  CHECKPOINTS
     // ════════════════════════════════════════════════════════
-    cfg.keep_checkpoints = 3;
+    cfg.keep_checkpoints = 0;
     cfg.model_name       = "alphazero_5x5";
     cfg.model_dir        = "../models/_5x5";
 
@@ -102,53 +102,25 @@ static azb::TrainConfig make_5x5_config() {
     cfg.value_eval = azb::ValueEval::kScoreDiffScaled;
 
     // ════════════════════════════════════════════════════════
-    //  PHASES  —  4 phases, mirroring 4x3 structure
+    //  PHASE  —  Single Phase
     //
-    //  Key changes from previous config:
-    //    1. kScoreDiffScaled — 2-5× stronger value signal
-    //    2. Full D₄ augmentation — 8× data (was 3×)
-    //    3. value_eval passed to MCTS agent — consistent
-    //       terminal evaluation (was mismatched!)
-    //    4. MCTS sims scaled with action space:
-    //       DeepSearch 1000 sims / 60 actions ≈ 17 visits/action
-    //       (comparable to 4x3's 600/31 ≈ 19)
-    //    5. Network 384h × 10 blocks — adequate for 25-box
-    //       chain reasoning
-    //
-    //  Game counts:
-    //    Phase 1  Bootstrap   :  30 × 300 =   9,000
-    //    Phase 2  ChainAware  :  80 × 250 =  20,000
-    //    Phase 3  DeepSearch  :  70 × 200 =  14,000
-    //    Phase 4  Mastery     :  50 × 150 =   7,500
-    //                                       ────────
-    //                           TOTAL      =  50,500 games
-    //                           × 60 moves × 8 augment = ~24M positions
-    //
-    //  Time estimate (i7-13700H):
-    //    Phase 1 (250 sims)     :  ~20 min
-    //    Phase 2 (600 sims)     :  ~80 min
-    //    Phase 3 (1000 sims)    :  ~100 min
-    //    Phase 4 (1400 sims)    :  ~75 min
-    //                              ─────────
-    //                  TOTAL    =  ~4.5 hrs
+    //  200k games total (1000 iterations × 200 games).
+    //  Estimated time (i7-13700H, post-optimization): ~8-12 hrs.
     // ════════════════════════════════════════════════════════
     cfg.phases = {
 
-        // ── Phase 1: Bootstrap ───────────────────────────────
-        //  capture_boost=0.3 breaks the cold-start problem:
-        //  ensures MCTS always explores capture moves so the NN
-        //  can learn "capture = good" from day one.
+        // ── Single Phase: 200k games ─────────────────────────────
         {
-            /*name*/              "Bootstrap",
-            /*iterations*/        500,
+            /*name*/              "Main",
+            /*iterations*/        1000,
             /*mcts_sims*/         800,
-            /*episodes_per_iter*/ 100,
-            /*epochs*/            2,
-            /*lr*/                0.003f,
+            /*episodes_per_iter*/ 200,
+            /*epochs*/            3,
+            /*lr*/                0.001f,
             /*temp_threshold*/    8,
             /*temp_explore*/      1.0f,
-            /*temp_exploit*/      0.20f,
-            /*capture_boost*/     0.0
+            /*temp_exploit*/      0.30f,
+            /*capture_boost*/     0.0f
         },
 
     };

@@ -1,0 +1,8 @@
+$pdf_mode = 1;
+$bibtex_use = 1;
+$interaction = 'nonstopmode';
+$halt_on_error = 1;
+
+# Put build artifacts next to the sources (simplest + repo-friendly)
+$out_dir = '.';
+

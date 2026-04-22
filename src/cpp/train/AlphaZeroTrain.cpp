@@ -67,6 +67,26 @@ std::string AlphaZeroTrainer::model_path() const {
 void AlphaZeroTrainer::train() {
     std::filesystem::create_directories(cfg_.model_dir);
 
+    const std::string loss_log_path =
+        cfg_.model_dir + "/loss_log_" + std::to_string(cfg_.rows) + "x" + std::to_string(cfg_.cols) + ".csv";
+    const bool loss_log_exists = std::filesystem::exists(loss_log_path);
+    std::ofstream loss_log(loss_log_path, std::ios::app);
+    if (!loss_log) {
+        std::cerr << "[Trainer] Failed to open loss log file: " << loss_log_path << std::endl;
+    } else if (!loss_log_exists) {
+        loss_log << "timestamp_ms,phase_idx,phase_name,iter,epoch,epochs,batches,loss,value_loss,policy_loss\n";
+    }
+
+    const std::string batch_debug_path =
+        cfg_.model_dir + "/batch_debug_" + std::to_string(cfg_.rows) + "x" + std::to_string(cfg_.cols) + ".csv";
+    const bool batch_debug_exists = std::filesystem::exists(batch_debug_path);
+    std::ofstream batch_debug(batch_debug_path, std::ios::app);
+    if (!batch_debug) {
+        std::cerr << "[Trainer] Failed to open batch debug file: " << batch_debug_path << std::endl;
+    } else if (!batch_debug_exists) {
+        batch_debug << "timestamp_ms,phase_idx,phase_name,iter,epoch,epochs,batches,policy_sum_mean,zero_policy_rows,legal_moves_mean\n";
+    }
+
     // Write model architecture sidecar so Python can auto-detect hidden/blocks
     {
         std::ofstream info(cfg_.model_dir + "/model_info.json");
@@ -228,7 +248,37 @@ void AlphaZeroTrainer::train() {
             model_.train_mode();
             float total_loss = 0.0f;
             for (int epoch = 0; epoch < phase.epochs; epoch++) {
-                total_loss += train_epoch(optimizer);
+                const auto stats = train_epoch(optimizer,
+                                               batch_debug ? static_cast<std::ostream*>(&batch_debug) : nullptr,
+                                               p_idx,
+                                               phase.name,
+                                               (iter + 1),
+                                               (epoch + 1),
+                                               phase.epochs);
+                total_loss += stats.loss;
+
+                std::cout << "    Epoch " << (epoch + 1) << "/" << phase.epochs
+                          << " | loss=" << stats.loss
+                          << " (v=" << stats.value_loss
+                          << ", p=" << stats.policy_loss
+                          << "), batches=" << stats.batches << std::endl;
+
+                if (loss_log) {
+                    const auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now());
+                    const auto ts_ms = now.time_since_epoch().count();
+                    loss_log << ts_ms << ","
+                             << p_idx << ","
+                             << phase.name << ","
+                             << (iter + 1) << ","
+                             << (epoch + 1) << ","
+                             << phase.epochs << ","
+                             << stats.batches << ","
+                             << stats.loss << ","
+                             << stats.value_loss << ","
+                             << stats.policy_loss << "\n";
+                    loss_log.flush();
+                }
             }
             std::cout << "  Avg Loss: " << total_loss / phase.epochs << std::endl;
 
@@ -282,12 +332,25 @@ void AlphaZeroTrainer::train() {
     std::cout << "\nAll training phases complete." << std::endl;
 }
 
-float AlphaZeroTrainer::train_epoch(torch::optim::Adam& optimizer) {
+AlphaZeroTrainer::TrainLossStats AlphaZeroTrainer::train_epoch(torch::optim::Adam& optimizer,
+                                                               std::ostream* batch_debug_csv,
+                                                               size_t phase_idx,
+                                                               const std::string& phase_name,
+                                                               int iter_1_based,
+                                                               int epoch_1_based,
+                                                               int epochs_total) {
     const int buf_size = replay_buffer_.size();
-    if (buf_size < cfg_.batch_size) return 0.0f;
+    if (buf_size < cfg_.batch_size) return {};
 
     const int num_batches = std::min(buf_size / cfg_.batch_size, 256);
     float total_loss = 0.0f;
+    float total_v_loss = 0.0f;
+    float total_p_loss = 0.0f;
+    int batches = 0;
+
+    float policy_sum_mean_acc = 0.0f;
+    float legal_moves_mean_acc = 0.0f;
+    int zero_policy_rows_acc = 0;
 
     for (int b = 0; b < num_batches; b++) {
         auto batch = replay_buffer_.sample(cfg_.batch_size);
@@ -312,6 +375,15 @@ float AlphaZeroTrainer::train_epoch(torch::optim::Adam& optimizer) {
         auto masks_t    = torch::stack(masks).to(device_);
         auto values_t   = torch::tensor(values, torch::kFloat32).unsqueeze(1).to(device_);
 
+        // Diagnostics: if policy targets are all-zero (or not normalized), policy loss can be exactly 0.
+        // Compute lightweight scalar stats per batch and aggregate for the epoch.
+        {
+            auto policy_row_sums = policies_t.sum(/*dim=*/1);
+            policy_sum_mean_acc += policy_row_sums.mean().item<float>();
+            zero_policy_rows_acc += policy_row_sums.le(0.0f).sum().item<int>();
+            legal_moves_mean_acc += masks_t.sum(/*dim=*/1).mean().item<float>();
+        }
+
         auto [logits, out_value] = model_.forward(states_t);
 
         auto v_loss = torch::mse_loss(out_value, values_t);
@@ -328,9 +400,48 @@ float AlphaZeroTrainer::train_epoch(torch::optim::Adam& optimizer) {
         optimizer.step();
 
         total_loss += loss.item<float>();
+        total_v_loss += v_loss.item<float>();
+        total_p_loss += p_loss.item<float>();
+        batches++;
     }
 
-    return total_loss / std::max(num_batches, 1);
+    const int denom = std::max(batches, 1);
+    TrainLossStats stats;
+    stats.loss = total_loss / denom;
+    stats.value_loss = total_v_loss / denom;
+    stats.policy_loss = total_p_loss / denom;
+    stats.batches = batches;
+
+    if (batch_debug_csv && batches > 0) {
+        const float policy_sum_mean = policy_sum_mean_acc / static_cast<float>(batches);
+        const float legal_moves_mean = legal_moves_mean_acc / static_cast<float>(batches);
+
+        const auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now());
+        const auto ts_ms = now.time_since_epoch().count();
+
+        (*batch_debug_csv) << ts_ms << ","
+                           << phase_idx << ","
+                           << phase_name << ","
+                           << iter_1_based << ","
+                           << epoch_1_based << ","
+                           << epochs_total << ","
+                           << batches << ","
+                           << policy_sum_mean << ","
+                           << zero_policy_rows_acc << ","
+                           << legal_moves_mean << "\n";
+        batch_debug_csv->flush();
+
+        if (zero_policy_rows_acc > 0 || policy_sum_mean < 0.5f) {
+            std::cerr << "[Trainer] Warning: policy target stats look off (epoch "
+                      << epoch_1_based << "/" << epochs_total
+                      << "): policy_sum_mean=" << policy_sum_mean
+                      << ", zero_policy_rows=" << zero_policy_rows_acc
+                      << ", legal_moves_mean=" << legal_moves_mean << std::endl;
+        }
+    }
+
+    return stats;
 }
 
 

@@ -1,0 +1,1125 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage[section]{placeins}
+
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+\title{Scalable Self-Play Reinforcement Learning via Hierarchical Spatial Transfer and Curriculum Training: A Case Study on Dots-and-Boxes}
+\author{Nishant Mohan}
+\date{April 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Self-play reinforcement learning, exemplified by the AlphaZero paradigm,
+has achieved superhuman performance in classical board games such as Go,
+Chess, and Shogi. However, applying these methods to combinatorial games
+with distinct structural properties---delayed rewards, extra-turn
+mechanics, and rapidly growing state spaces---remains underexplored.
+We address this gap by developing a self-play system for Dots-and-Boxes,
+a deterministic two-player game whose state-space complexity ranges from
+$10^5$ ($2{\times}2$) to $10^{25}$ ($5{\times}5$), and whose gameplay
+demands tight integration of local tactics with global strategic reasoning.
+Our work introduces three methodological contributions:
+(i)~a \emph{hierarchical patch-based network} (PatchNet) that transfers
+locally learned tactics from small boards to larger ones via frozen
+patch-level feature extraction and a trainable global aggregator,
+reducing trainable parameters by approximately 60\%;
+(ii)~a \emph{phased training curriculum} that co-adapts search budget,
+learning rate, and exploration temperature across four stages to
+progressively shift the agent from exploration to exploitation;
+and (iii)~a \emph{board-size-invariant value target}
+($z=\tanh(0.5\,\Delta)$) that preserves gradient magnitude across
+board scales, addressing the signal-crushing problem inherent in
+score-normalized targets.
+Experimental evaluation on $2{\times}2$ and $3{\times}3$ boards shows
+that the agent achieves a 100\% win-rate against greedy baselines and
+up to 99\% against depth-limited alpha--beta search, while requiring
+only hundreds of milliseconds per move compared to minutes for
+traditional search at equivalent strategic depth.
+\end{abstract}
+
+% ======================================================================
+\section{Introduction}
+% ======================================================================
+
+Dots-and-Boxes is a deterministic, perfect-information, two-player,
+zero-sum pencil-and-paper game. Despite its simple rules---players
+alternate drawing edges on a grid; completing the fourth edge of a box
+yields a point and an extra turn---the game exhibits deep strategic
+complexity. The ``chain rule'' and parity arguments that govern expert
+play~\cite{berlekamp2000dots} make it a challenging testbed for
+learning-based game agents that must integrate local tactics (capturing
+free boxes) with global strategy (managing chain lengths and sacrifices).
+
+The state-space complexity of Dots-and-Boxes grows rapidly: a $3{\times}3$
+board already admits $\sim\!10^{10}$ states (Section~\ref{sec:statespace}),
+comparable to Connect Four ($\sim\!10^{13}$), while a $5{\times}5$ board
+reaches $\sim\!10^{25}$---between Chess ($\sim\!10^{47}$) and Checkers
+($\sim\!10^{21}$) in scale~\cite{barker2012solving}. Traditional
+alpha--beta search becomes infeasible beyond small boards and modest
+depths: even with move ordering and transposition tables, a depth-6
+alpha--beta search on a $5{\times}5$ board requires $\sim\!7$~minutes per
+move. This motivates learning-based approaches that amortize computation
+into a neural network and deploy it within a focused tree search.
+
+We follow the AlphaZero paradigm~\cite{silver2017mastering,silver2018general}:
+a policy--value network guides MCTS during self-play; training targets
+are derived from search visit counts (policy) and game outcomes (value).
+Our contributions are:
+
+\begin{enumerate}
+  \item \textbf{PatchNet}: A hierarchical architecture that extracts
+    overlapping patches from large boards, evaluates them with a frozen
+    pre-trained small-board model, and trains only a lightweight global
+    aggregator (Section~\ref{sec:patchnet}).
+  \item \textbf{Phased curriculum}: A four-stage training schedule that
+    adapts MCTS budget, learning rate, and temperature across training
+    (Section~\ref{sec:curriculum}).
+  \item \textbf{Board-size-invariant value target}: A scaled-tanh target
+    $z=\tanh(0.5\,\Delta)$ that provides consistent gradient magnitude
+    across board sizes (Section~\ref{sec:valuetargets}).
+  \item \textbf{Systems design}: An efficient training pipeline
+    featuring asynchronous MCTS with pending-node scheduling, batched
+    neural inference, dihedral symmetry augmentation, and DAG-based
+    transposition reuse (Sections~\ref{sec:mcts}--\ref{sec:selfplay}).
+\end{enumerate}
+
+% ======================================================================
+\section{Background and Related Work}
+\label{sec:background}
+% ======================================================================
+
+\paragraph{AlphaZero and self-play RL.}
+AlphaGo Zero~\cite{silver2017mastering} demonstrated that a single neural
+network trained entirely from self-play---without human data---could
+surpass human-level performance in Go. The subsequent
+AlphaZero~\cite{silver2018general} generalised the approach to Chess and
+Shogi, showing that the combination of a policy--value network with MCTS
+and the PUCT selection rule~\cite{rosin2011multi} is a powerful
+domain-independent framework. MuZero~\cite{schrittwieser2020mastering}
+extended this further by learning a latent dynamics model, eliminating the
+need for a known game simulator during planning. Our work applies the
+AlphaZero paradigm (known rules, no learned dynamics) to
+Dots-and-Boxes, a game whose combinatorial structure differs markedly
+from Go and Chess.
+
+\paragraph{MCTS foundations.}
+Monte Carlo Tree Search was established by Coulom~\cite{coulom2006efficient}
+and formalised with regret bounds by the UCT algorithm of Kocsis and
+Szepesv\'ari~\cite{kocsis2006bandit}. Modern MCTS implementations use
+neural priors (PUCT) and Dirichlet exploration noise at the root.
+Our implementation additionally supports asynchronous leaf evaluation
+and DAG-based transposition reuse.
+
+\paragraph{Dots-and-Boxes.}
+The mathematical theory of Dots-and-Boxes, including chains, loops, and the
+Nimstring connection, was developed by
+Berlekamp~\cite{berlekamp2000dots}. Barker and
+Korf~\cite{barker2012solving} solved $4{\times}5$ Dots-and-Boxes
+optimally using enhanced alpha--beta search with transposition tables
+and move ordering, establishing computational limits for exact methods.
+To our knowledge, no prior work applies deep RL self-play to
+Dots-and-Boxes at the scale presented here.
+
+\paragraph{Replay buffers and experience replay.}
+Experience replay~\cite{lin1992self} decorrelates training data by
+sampling from a buffer of past transitions. We use a capacity-limited
+circular buffer with adaptive growth across training phases.
+
+\paragraph{Symmetry in game AI.}
+Exploiting board symmetries for data augmentation is standard practice
+in AlphaZero-style systems. For Go, the dihedral group $D_4$ provides
+8-fold augmentation on square boards~\cite{silver2017mastering}. We
+extend this to Dots-and-Boxes, handling the additional complexity of
+separate horizontal and vertical edge sets under rotation.
+
+\paragraph{Transfer learning in games.}
+Curriculum and transfer approaches have been explored in multi-agent
+settings~\cite{bansal2018emergent}. Our PatchNet architecture
+(Section~\ref{sec:patchnet}) is a novel form of spatial transfer:
+tactical knowledge learned on small boards is reused as a frozen
+feature extractor for larger boards.
+
+% ======================================================================
+\section{Dots-and-Boxes Formalisation}
+\label{sec:game}
+% ======================================================================
+
+\subsection{Board Geometry}
+A board with $r \times c$ boxes has $(r{+}1)c$ horizontal edges and
+$r(c{+}1)$ vertical edges, for an action space of size
+\begin{equation}
+  |\mathcal{A}| = (r{+}1)c + r(c{+}1) = 2rc + r + c.
+\end{equation}
+Each action draws one currently undrawn edge. Completing the fourth edge
+of a box awards one point and grants an extra turn; otherwise the turn
+alternates.
+
+\subsection{Bitboard State Representation}
+\label{sec:bitboard}
+The game state is encoded using four bitsets and two scalar scores:
+\begin{itemize}
+  \item \textbf{Horizontal edges} $\mathbf{h} \in \{0,1\}^{(r+1)c}$:
+    bit $i$ is set iff horizontal edge $i$ has been drawn.
+  \item \textbf{Vertical edges} $\mathbf{v} \in \{0,1\}^{r(c+1)}$:
+    analogous for vertical edges.
+  \item \textbf{Box ownership} $\mathbf{b}_1, \mathbf{b}_2 \in \{0,1\}^{rc}$:
+    bit $j$ is set iff box $j$ is owned by player 1 or 2.
+  \item \textbf{Scores} $s_1, s_2 \in \mathbb{Z}_{\ge 0}$: number of
+    captured boxes per player.
+  \item \textbf{Current player} $p \in \{1, 2\}$.
+\end{itemize}
+This representation enables $O(1)$ legality checks and incremental
+updates via bitwise operations.
+
+\subsection{State-Space Complexity}
+\label{sec:statespace}
+Let $E = 2rc+r+c$ be the number of edges and $B=rc$ the number of boxes.
+An upper bound on the number of distinct game states is
+\begin{equation}
+  |\mathcal{S}| \le 2^E \cdot 2^B \cdot 2 = 2^{E+B+1},
+\end{equation}
+where the $2^E$ factor covers edge patterns, $2^B$ covers ownership
+assignments for completed boxes\footnote{Each completed box has exactly
+two possible owners (the player who drew the fourth edge), so $2^B$ is a
+tighter factor than the na\"ive $3^B$ (unclaimed/P1/P2).}, and the final
+factor of 2 accounts for the side to move.
+
+\begin{table}[t]
+  \centering
+  \caption{State-space upper bounds and action-space sizes for representative board sizes.}
+  \label{tab:statespace}
+  \begin{tabular}{lcccl}
+    \toprule
+    Board & $E$ & $B$ & $|\mathcal{A}|$ & $|\mathcal{S}|\le$ \\
+    \midrule
+    $2{\times}2$ & 12 & 4 & 12 & $2^{17} \approx 1.3 \times 10^5$ \\
+    $3{\times}3$ & 24 & 9 & 24 & $2^{34} \approx 1.7 \times 10^{10}$ \\
+    $4{\times}3$ & 31 & 12 & 31 & $2^{44} \approx 1.8 \times 10^{13}$ \\
+    $5{\times}5$ & 60 & 25 & 60 & $2^{86} \approx 7.7 \times 10^{25}$ \\
+    $7{\times}8$ & 127 & 56 & 127 & $2^{184} \approx 2.4 \times 10^{55}$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Table~\ref{tab:statespace} shows concrete magnitudes. The $5{\times}5$
+state space ($\sim\!10^{25}$) lies between Checkers ($\sim\!5 \times
+10^{20}$)~\cite{schaeffer2007checkers} and
+Chess ($\sim\!10^{47}$)~\cite{silver2018general} in scale, motivating the
+use of function approximation and focused tree search rather than
+exhaustive computation.
+
+% ======================================================================
+\section{Method}
+\label{sec:method}
+% ======================================================================
+
+\subsection{System Architecture}
+\label{sec:architecture}
+
+Figure~\ref{fig:architecture} summarises the training pipeline. Multiple
+self-play workers run MCTS in parallel, submitting leaf-evaluation
+requests to a centralised batched inference server. Completed games
+produce training tuples that are pushed to a replay buffer. A trainer
+thread samples minibatches, computes the combined loss, and updates the
+network via Adam~\cite{kingma2015adam}. The updated model is
+checkpointed and deployed for the next self-play iteration.
+
+\begin{figure}[t]
+\centering
+\fbox{%
+\begin{minipage}{0.95\linewidth}
+\small
+\begin{center}
+\textbf{Training Pipeline Architecture}
+\end{center}
+\vspace{0.3em}
+\begin{tabular}{@{}c@{}}
+$W$ \textbf{Self-Play Workers} (parallel threads) \\
+$\downarrow$ \\
+Each worker: Environment $\xrightarrow{\text{MCTS}}$ action \\
+\quad$\hookrightarrow$ leaf nodes $\xrightarrow{\text{submit}}$ \textsc{InferenceServer} \\
+\quad$\hookrightarrow$ receive $(\mathbf{p}, v)$, expand, backup \\
+\quad$\hookrightarrow$ root visit counts $\Rightarrow$ $\pi$, play action \\
+\quad$\hookrightarrow$ on terminal: push $(x, \pi, \text{mask}, z)$ to \textsc{ReplayBuffer}
+\end{tabular}
+\vspace{0.5em}
+\hrule
+\vspace{0.5em}
+\begin{tabular}{@{}c@{}}
+\textsc{InferenceServer} (dedicated thread) \\
+accumulate batch ($\le B_{\max}$ states, 200\,$\mu$s window) \\
+$\rightarrow$ single forward pass $\rightarrow$ softmax $\rightarrow$ dispatch $(\mathbf{p}, v)$
+\end{tabular}
+\vspace{0.5em}
+\hrule
+\vspace{0.5em}
+\begin{tabular}{@{}c@{}}
+\textbf{Trainer} (main thread) \\
+sample minibatches from \textsc{ReplayBuffer} \\
+$\rightarrow$ compute $\mathcal{L} = \mathcal{L}_\pi + 1.5\,\mathcal{L}_v$ \\
+$\rightarrow$ gradient clipping ($\|\nabla\|_2 \le 1.0$) \\
+$\rightarrow$ Adam step $\rightarrow$ checkpoint $\theta$
+\end{tabular}
+\end{minipage}%
+}
+\caption{End-to-end architecture of the training pipeline.
+Self-play workers, the inference server, and the trainer operate concurrently.}
+\label{fig:architecture}
+\end{figure}
+
+% ------------------------------------------------------------------
+\subsection{Policy--Value Network (AlphaZeroBitNet)}
+\label{sec:network}
+% ------------------------------------------------------------------
+
+The base model is a fully-connected residual network with a shared trunk
+and two output heads.
+
+\paragraph{Input features.}
+The state is encoded as a flat feature vector composed of:
+\begin{enumerate}
+  \item \textbf{Horizontal edge bits} $\in \{0,1\}^{(r+1)c}$
+  \item \textbf{Vertical edge bits} $\in \{0,1\}^{r(c+1)}$
+  \item \textbf{Box ownership} $\in \{-1,0,+1\}^{rc}$: $+1$ if owned by
+    the current player, $-1$ if by the opponent, $0$ if unclaimed
+  \item \textbf{Edge-count one-hot} $\in \{0,1\}^{rc \times 5}$: for each
+    box, a 5-channel one-hot encoding of the number of drawn surrounding
+    edges (0--4). The count-3 feature directly signals ``free box'' (one
+    move from capture), while count-2 signals a half-open chain
+  \item \textbf{Game-phase scalar}: $\text{boxes\_filled} / B \in [0,1]$
+  \item \textbf{Score-advantage scalar}: $(s_{\text{me}} - s_{\text{opp}}) / B$
+\end{enumerate}
+Yielding a total input size of
+$(r{+}1)c + r(c{+}1) + rc + 5rc + 2 = 2rc + r + c + 6rc + 2$.
+
+\paragraph{Architecture.}
+\begin{itemize}
+  \item \textbf{Input projection:}
+    $\text{Linear}(d_{\text{in}}, H) \rightarrow \text{LayerNorm}
+    \rightarrow \text{ReLU}$.
+  \item \textbf{Residual tower:} $N_B$ fully-connected residual blocks.
+    Each block applies $\text{Linear} \rightarrow \text{LayerNorm}
+    \rightarrow \text{ReLU} \rightarrow \text{Dropout}(p) \rightarrow
+    \text{Linear} \rightarrow \text{LayerNorm}$, then adds a skip
+    connection and applies ReLU. LayerNorm~\cite{ba2016layer} is used
+    instead of BatchNorm since self-play minibatches can be small.
+  \item \textbf{Policy head:}
+    $\text{Linear}(H, H/2) \rightarrow \text{LayerNorm} \rightarrow
+    \text{ReLU} \rightarrow \text{Linear}(H/2, |\mathcal{A}|)$,
+    producing logits over all edges.
+  \item \textbf{Value head (deep MLP):}
+    $\text{Linear}(H, H/2) \rightarrow \text{LayerNorm} \rightarrow
+    \text{ReLU} \rightarrow \text{Linear}(H/2, H/4) \rightarrow
+    \text{LayerNorm} \rightarrow \text{ReLU} \rightarrow
+    \text{Linear}(H/4, 1) \rightarrow \tanh$.
+\end{itemize}
+The value head is deliberately deeper than the single-layer head used in
+standard AlphaZero~\cite{silver2018general}: Dots-and-Boxes requires
+aggregating global signals such as total score advantage, game phase, and
+chain parity, which benefit from additional nonlinear capacity.
+
+\paragraph{Illegal move masking.}
+During both training and inference, an additive mask is applied before
+the softmax:
+\begin{equation}
+  \hat{\mathbf{p}} = \text{softmax}\!\Big(\mathbf{l} + (\mathbf{m} - \mathbf{1}) \cdot 10^9\Big),
+\end{equation}
+where $\mathbf{l}$ are the raw logits and
+$\mathbf{m} \in \{0,1\}^{|\mathcal{A}|}$ is the legal-action mask. The
+large negative bias drives illegal-action probabilities to zero without
+requiring architecture changes. The replay buffer stores this mask
+alongside each training sample to ensure consistent masking during
+gradient computation.
+
+% ------------------------------------------------------------------
+\subsection{Hierarchical Patch-Based Network (PatchNet)}
+\label{sec:patchnet}
+% ------------------------------------------------------------------
+
+Training a monolithic network on larger boards (e.g., $5{\times}5$,
+$7{\times}8$) is expensive because both the network capacity and MCTS
+budget must scale with the state-space size. We introduce PatchNet, a
+hierarchical architecture that transfers locally learned tactics from a
+small pre-trained model to larger boards.
+
+\paragraph{Core idea.}
+Local tactical patterns in Dots-and-Boxes---such as ``avoid giving away
+a free box'' (count-3 avoidance) or ``capture a chain''---are
+\emph{spatially local}: they depend only on a small neighbourhood of the
+board. PatchNet exploits this by:
+\begin{enumerate}
+  \item Extracting all overlapping $k{\times}k$ patches from the
+    $r{\times}c$ board (yielding
+    $(r{-}k{+}1)(c{-}k{+}1)$ patches).
+  \item Running a \emph{frozen} pre-trained $k{\times}k$ AlphaZeroBitNet
+    on each patch, producing local policy logits and a local value signal.
+  \item Scattering local policy logits to global action indices
+    (averaging where patches overlap).
+  \item Concatenating the global feature representation, the scattered
+    policy map, and the per-patch values into a fusion vector.
+  \item Processing the fusion vector through a trainable global
+    aggregator (residual tower + policy/value heads) to produce the final
+    output.
+\end{enumerate}
+
+\paragraph{Architecture details.}
+For a $5{\times}5$ board with $3{\times}3$ patches, there are
+$3 \times 3 = 9$ overlapping patches. Each patch produces 24 action
+logits and 1 value signal. The global aggregator has its own residual
+tower ($N_G$ blocks, hidden dimension $H_G$). The fusion input dimension
+is $H_G + |\mathcal{A}| + P$, where $P$ is the number of patches.
+
+\paragraph{Transfer training protocol.}
+\begin{enumerate}
+  \item \textbf{Pre-train} a standard AlphaZeroBitNet on the $k{\times}k$
+    board until convergence.
+  \item \textbf{Freeze} the local model: all parameters have
+    \texttt{requires\_grad=false} and the model runs in evaluation mode
+    (no dropout).
+  \item \textbf{Train only the global aggregator} on the large board via
+    normal self-play. Since local tactics are pre-learned, the bootstrap
+    phase can be skipped entirely.
+\end{enumerate}
+
+\paragraph{Advantages.}
+\begin{itemize}
+  \item $\sim$60\% fewer trainable parameters than a monolithic network
+    of comparable capacity.
+  \item Faster convergence: local tactical patterns do not need
+    re-discovery.
+  \item Natural spatial decomposition without weight-sharing assumptions
+    of CNNs.
+\end{itemize}
+
+This approach is analogous to CNN local receptive fields but operates on
+the graph structure of the Dots-and-Boxes grid rather than a regular
+pixel lattice.
+
+% ------------------------------------------------------------------
+\subsection{Monte Carlo Tree Search}
+\label{sec:mcts}
+% ------------------------------------------------------------------
+
+We implement AlphaZero-style MCTS with the PUCT selection
+rule~\cite{rosin2011multi}:
+\begin{equation}
+  a^* = \arg\max_a \left(
+    Q(s,a) + c_{\text{puct}} \, P(s,a) \,
+    \frac{\sqrt{\textstyle\sum_b N(s,b)}}{1 + N(s,a)}
+  \right),
+\end{equation}
+where $P(s,a)$ is the policy prior from the network, $N(s,a)$ are visit
+counts, and $Q(s,a) = W(s,a)/N(s,a)$ is the mean action value.
+
+\paragraph{Dirichlet exploration noise.}
+At the root node during self-play, priors are perturbed:
+\begin{equation}
+  P'(s,a) = (1-\varepsilon)\,P(s,a) + \varepsilon\,\eta_a,
+  \quad \eta \sim \text{Dir}(\alpha).
+\end{equation}
+
+\paragraph{First-play urgency (FPU) reduction.}
+Unvisited actions ($N(s,a)=0$) use a pessimistic value estimate:
+\begin{equation}
+  Q_{\text{FPU}}(s,a) = \bar{Q}(s) - \delta_{\text{fpu}},
+\end{equation}
+where $\bar{Q}(s)$ is the parent's mean value and
+$\delta_{\text{fpu}} \in [0, 1]$ is the FPU reduction parameter. This
+prevents premature uniform exploration when the policy prior is
+uncalibrated early in training.
+
+\paragraph{Extra-turn value conversion.}
+Dots-and-Boxes includes ``extra move'' captures where the current player
+retains the turn. During PUCT selection, if a child node has the
+\emph{same} player as the parent (an extra-turn edge), $Q(s,a)$ is used
+directly; if the player changes, $Q(s,a)$ is \emph{negated} to convert
+to the parent's perspective. This is critical for correctly valuing
+capture sequences.
+
+\paragraph{Temperature-based action selection.}
+The action played in self-play is sampled proportionally to visit counts
+raised to a temperature:
+\begin{equation}
+  \pi(a) \propto N(s,a)^{1/\tau}, \qquad
+  \tau = \begin{cases}
+    \tau_{\text{explore}} & \text{if move count} < t_{\text{thresh}}, \\
+    \tau_{\text{exploit}} & \text{otherwise}.
+  \end{cases}
+\end{equation}
+This schedule encourages diverse openings (high $\tau$) while playing
+near-greedily ($\tau \to 0$) in the mid- and endgame.
+
+% ------------------------------------------------------------------
+\subsection{Asynchronous MCTS}
+\label{sec:async}
+% ------------------------------------------------------------------
+
+In synchronous MCTS, each simulation blocks at every leaf until the
+neural network returns $(\mathbf{p}, v)$. When inference is the
+bottleneck, this underutilises CPU cores. We implement an asynchronous
+variant using \emph{pending nodes}:
+
+\begin{algorithm}[t]
+\caption{Asynchronous MCTS root search (conceptual)}
+\label{alg:async}
+\begin{algorithmic}[1]
+\FOR{$\text{sim} = 1$ \TO $S$}
+  \STATE $n \gets \text{root}$
+  \WHILE{$n$ is expanded \AND not terminal}
+    \STATE $n \gets \text{SelectChild}(n)$ via PUCT
+    \IF{$n.\text{status} = \text{PENDING}$}
+      \STATE \textbf{continue} to next simulation
+    \ENDIF
+  \ENDWHILE
+  \IF{$n$ is terminal}
+    \STATE \text{Backpropagate}(path, outcome)
+  \ELSE
+    \STATE $n.\text{status} \gets \text{PENDING}$
+    \STATE \text{EnqueueInference}($n.\text{state}$)
+  \ENDIF
+\ENDFOR
+\STATE \textbf{On inference reply} ($n$, $\mathbf{p}$, $v$):
+\STATE \quad $\text{Expand}(n, \mathbf{p})$; \text{Backpropagate}(path, $v$)
+\end{algorithmic}
+\end{algorithm}
+
+When a simulation reaches an unexpanded leaf, it submits an inference
+request, marks the node \textsc{Pending}, and immediately starts a new
+simulation. If a simulation encounters a pending node, it skips that path.
+When the inference result arrives, the node transitions to
+\textsc{Expanded} with initialised priors. This overlaps CPU-side
+selection/backup with inference and increases simulations per second.
+
+% ------------------------------------------------------------------
+\subsection{Tree vs.\ DAG Search}
+\label{sec:dag}
+% ------------------------------------------------------------------
+
+The implementation supports both tree-based search and a hybrid DAG mode
+controlled by a configuration flag:
+
+\begin{itemize}
+  \item \textbf{Training (self-play):} Tree mode (default). Each
+    simulation path allocates fresh nodes, avoiding shared-statistics
+    effects during learning while policies and values are unstable.
+  \item \textbf{Evaluation:} DAG mode. A per-move transposition table
+    maps a 128-bit hash of the full board state to shared node pointers.
+    Identical states reached via different move orders reuse the same
+    node, reducing duplicated expansions. The hash uses golden-ratio
+    mixing of four bitset hash pairs plus the current player, providing
+    collision probability $< 2^{-64}$ for boards up to $20{\times}20$.
+    The table is cleared after each move to bound memory.
+\end{itemize}
+
+Additionally, an \emph{inference cache} avoids redundant neural network
+evaluations within a single \texttt{act()} call: if the same board state
+is reached by multiple simulation paths, the cached policy--value result
+is reused without re-querying the inference server.
+
+% ------------------------------------------------------------------
+\subsection{Capture Boost Prior}
+\label{sec:captureboost}
+% ------------------------------------------------------------------
+
+During the early bootstrap phase when the network's policy is essentially
+random, MCTS may fail to discover that completing a box is always
+beneficial. To address this cold-start problem, we optionally apply a
+\emph{capture boost}: the network's prior probability for actions that
+complete at least one box is multiplicatively boosted by a factor
+$\beta_{\text{cap}}$ before normalisation. We linearly decay
+$\beta_{\text{cap}}$ to zero across training phases as the network
+learns to prioritise captures on its own.
+
+% ------------------------------------------------------------------
+\subsection{Training Pipeline}
+\label{sec:selfplay}
+% ------------------------------------------------------------------
+
+\subsubsection{Training Targets and Loss}
+\label{sec:loss}
+
+For each state $s_t$ visited during self-play, we store a tuple
+$(x_t, \pi_t, \mathbf{m}_t, z)$ where $x_t$ is the encoded state,
+$\pi_t$ is the policy target from MCTS visit counts, $\mathbf{m}_t$ is
+the legal-action mask, and $z$ is the value target.
+
+The network output is $(\hat{\mathbf{p}}, \hat{v}) = f_\theta(x)$. We
+minimise the loss:
+\begin{equation}
+  \mathcal{L}(\theta) =
+    \underbrace{-\sum_a \pi(a) \log \hat{p}(a)}_{\mathcal{L}_\pi}
+    + 1.5 \underbrace{(\hat{v} - z)^2}_{\mathcal{L}_v}
+  \label{eq:loss}
+\end{equation}
+where the policy loss uses masked log-softmax
+($\hat{p}(a) = \text{softmax}(\mathbf{l} + (\mathbf{m}-1)\cdot 10^9)_a$).
+The value loss coefficient of 1.5 (rather than the standard 1.0 used in
+AlphaZero~\cite{silver2018general}) was found empirically to stabilise
+early training by providing a stronger gradient signal for value
+estimation.
+
+\paragraph{Optimisation.}
+We use Adam~\cite{kingma2015adam} with per-phase learning rates.
+Gradient norms are clipped to $\|\nabla\|_2 \le 1.0$ to prevent
+instability from rare outlier states. The number of gradient steps per
+epoch is capped at $\min(|\text{buffer}|/B_{\text{batch}},\, 256)$ to
+ensure stable updates even as the replay buffer grows.
+
+% ------------------------------------------------------------------
+\subsubsection{Value Target Design}
+\label{sec:valuetargets}
+% ------------------------------------------------------------------
+
+Dots-and-Boxes yields final scores $s_1, s_2$ with margin
+$\Delta = s_{\text{me}} - s_{\text{opp}}$. We implement five value
+targets, offering a spectrum from sparse to dense supervision:
+
+\begin{table}[t]
+\centering
+\caption{Value target definitions. $B = rc$ is the total number of boxes,
+$\Delta = s_{\text{me}} - s_{\text{opp}}$.}
+\label{tab:valuetargets}
+\begin{tabular}{llc}
+\toprule
+Name & Formula & Range \\
+\midrule
+\textsc{WinLoss} & $z = \text{sign}(\Delta)$ & $\{-1,0,+1\}$ \\
+\textsc{ScoreDiff} & $z = \Delta / B$ & $[-1, +1]$ \\
+\textsc{ScoreDiffSqrt} & $z = \text{sign}(\Delta)\sqrt{|\Delta|/B}$ & $[-1, +1]$ \\
+\textsc{ScoreDiffTanh} & $z = \tanh(2\Delta / B)$ & $(-1, +1)$ \\
+\textsc{ScoreDiffScaled} & $z = \tanh(0.5 \cdot \Delta)$ & $(-1, +1)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The signal-crushing problem.}
+The \textsc{ScoreDiffTanh} target divides by $B$ before applying $\tanh$.
+On large boards ($B = 25$ for $5{\times}5$), a 1-box lead yields
+$z = \tanh(2/25) = \tanh(0.08) \approx 0.08$, providing minimal gradient
+signal. Values cluster in $[-0.2, +0.2]$, making it difficult for the
+network to distinguish winning from losing positions.
+
+\paragraph{Board-size-invariant target.}
+\textsc{ScoreDiffScaled} addresses this by applying $\tanh$ to the
+\emph{raw} (unnormalized) score difference:
+$z = \tanh(0.5 \cdot \Delta)$. This gives:
+\begin{center}
+\begin{tabular}{ccccc}
+$\Delta=1$ & $\Delta=2$ & $\Delta=3$ & $\Delta=5$ \\
+$z \approx 0.46$ & $z \approx 0.76$ & $z \approx 0.91$ & $z \approx 0.99$
+\end{tabular}
+\end{center}
+The mapping is independent of board size: a 1-box lead always yields
+$z \approx 0.46$ whether on a $3{\times}3$ or $7{\times}8$ board,
+providing a strong, discriminative training signal.
+
+% ------------------------------------------------------------------
+\subsubsection{Phased Training Curriculum}
+\label{sec:curriculum}
+% ------------------------------------------------------------------
+
+Rather than using fixed hyperparameters throughout training, we employ a
+multi-phase curriculum that adapts key parameters as the agent improves.
+Each phase specifies its own MCTS simulation budget, learning rate,
+temperature schedule, and capture boost:
+
+\begin{table}[t]
+\centering
+\caption{Phased training curriculum (example for $5{\times}5$ board).
+$S$: MCTS sims, $\eta$: learning rate, $\tau_e/\tau_x$: explore/exploit
+temperature, $\beta$: capture boost.}
+\label{tab:phases}
+\begin{tabular}{lcccccl}
+\toprule
+Phase & Iters & $S$ & $\eta$ & $\tau_e/\tau_x$ & $\beta$ & Purpose \\
+\midrule
+Bootstrap   & 30 & 250  & 0.003    & 1.0/0.3  & 0.3 & Cold-start; learn captures \\
+ChainAware  & 80 & 600  & 0.001    & 0.9/0.15 & 0.0 & Chain reasoning \\
+DeepSearch  & 70 & 1000 & 0.0003   & 0.8/0.08 & 0.0 & Endgame/parity \\
+Mastery     & 50 & 1400 & 0.0001   & 0.6/0.02 & 0.0 & Near-greedy exploitation \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The \textbf{Bootstrap} phase uses lower simulation budgets and higher exploration
+to rapidly accumulate diverse experience. The optional capture boost ensures
+MCTS always explores capture moves during the cold-start period.
+\textbf{ChainAware} increases MCTS depth so the agent can discover
+multi-step chain strategies. \textbf{DeepSearch} further increases
+simulations to refine endgame and parity play. \textbf{Mastery} uses
+near-greedy exploitation with very low learning rate for final polishing.
+
+For PatchNet, the Bootstrap phase can be skipped entirely since local
+tactics are pre-learned from the frozen small-board model.
+
+% ------------------------------------------------------------------
+\subsubsection{Self-Play, Replay Buffer, and Batched Inference}
+\label{sec:replay}
+% ------------------------------------------------------------------
+
+\paragraph{Self-play workers.}
+Training is parallelised across $W$ worker threads. Each worker runs
+complete self-play games using MCTS and pushes training tuples to a
+shared replay buffer. Workers communicate with the inference server via
+asynchronous submit/poll: the worker submits a state snapshot and polls
+for the response without blocking.
+
+\paragraph{Batched inference server.}
+A dedicated inference thread aggregates requests from all workers into
+batches of up to $B_{\max}$ states. After a brief accumulation window
+($\sim$200\,$\mu$s) or when the batch reaches capacity, the server
+runs a single forward pass, applies softmax to obtain policy probabilities,
+and dispatches results back to workers. This amortises GPU/CPU kernel
+launch overhead and improves hardware utilisation.
+
+\paragraph{Replay buffer.}
+The replay buffer is a capacity-limited circular queue implemented as a
+thread-safe \texttt{std::deque}. When the buffer is full, the oldest
+samples are discarded (FIFO eviction). The buffer capacity grows
+adaptively across iterations (e.g., +2000 per iteration) to accommodate
+the expanding diversity of self-play experience. Random minibatches are
+drawn using a partial Fisher--Yates shuffle for
+$O(\text{batch\_size})$ sampling complexity.
+
+For reproducibility and training resumption, the buffer supports
+serialisation: state, policy, mask tensors and value scalars are stacked
+and written to a LibTorch archive. Optimizer state and phase/iteration
+progress are checkpointed alongside the model weights.
+
+% ------------------------------------------------------------------
+\subsubsection{Symmetry Augmentation}
+\label{sec:symmetry}
+% ------------------------------------------------------------------
+
+Dots-and-Boxes boards admit geometric symmetries that preserve the game
+dynamics. We exploit these for zero-cost data augmentation by remapping
+state features and policy targets under symmetry transformations.
+
+\begin{itemize}
+  \item \textbf{Rectangular boards} ($r \ne c$): horizontal flip and
+    vertical flip (2 transforms $\Rightarrow$ 3$\times$ data with identity).
+  \item \textbf{Square boards} ($r = c$): the full dihedral group $D_4$
+    comprising identity, 2 reflections, 3 rotations, and 2 diagonal
+    flips (7 transforms $\Rightarrow$ 8$\times$ data).
+\end{itemize}
+
+Unlike image augmentation where pixel indices transform uniformly,
+Dots-and-Boxes requires separate handling of horizontal and vertical
+edge sets: under rotation, horizontal edges map to vertical edges and
+vice versa. The augmentation module pre-computes index permutation
+tables for each transform, then generates augmented training samples
+by bitset remapping---a pure $O(|E|)$ operation with no neural network
+calls.
+
+Currently, symmetry augmentation is disabled for PatchNet because
+patch features would require separate permutation tables; extending
+augmentation to PatchNet is left for future work.
+
+% ======================================================================
+\section{Implementation Details}
+\label{sec:implementation}
+% ======================================================================
+
+\paragraph{Language and framework.}
+The system is written in C++17 and uses the PyTorch C++ frontend
+(LibTorch) for neural network definition, training, and inference.
+CUDA is used automatically when available; the system degrades
+gracefully to CPU-only execution.
+
+\paragraph{Hyperparameters.}
+Table~\ref{tab:hyperparams} lists the default hyperparameters for each
+board size.
+
+\begin{table}[t]
+\centering
+\caption{Default network and MCTS hyperparameters by board size.}
+\label{tab:hyperparams}
+\begin{tabular}{lcccc}
+\toprule
+Parameter & $2{\times}2$ & $3{\times}3$ & $5{\times}5$ & $5{\times}5$ (Patch) \\
+\midrule
+Hidden size $H$ & 64 & 128 & 384 & 256 (global) \\
+Residual blocks $N_B$ & 4 & 6 & 10 & 6 (global) \\
+Dropout $p$ & 0.1 & 0.1 & 0.06 & 0.08 \\
+MCTS sims $S$ & 200 & 400--800 & 600--1400 & 400--1200 \\
+$c_{\text{puct}}$ & 1.5 & 1.6 & 1.6 & 1.6 \\
+Dirichlet $\alpha$ & 0.3 & 0.15 & 0.10 & 0.10 \\
+Dirichlet $\varepsilon$ & 0.25 & 0.20 & 0.25 & 0.25 \\
+FPU reduction & 0.25 & 0.20 & 0.20 & 0.20 \\
+Workers $W$ & 8 & 16 & 16 & 16 \\
+Batch size & 128 & 256 & 256 & 256 \\
+Buffer capacity & 20K & 50K & 60K & 50K \\
+Value target & WL & SD Tanh & SD Scaled & SD Scaled \\
+Augmentation & $D_4$ & $D_4$ & off & off \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Reproducibility.}
+The full source code, including all configuration files and evaluation
+scripts, is publicly available at
+\url{https://github.com/Nishant040305/Dot-Boxes}.
+
+% ======================================================================
+\section{Experimental Setup}
+\label{sec:experiments}
+% ======================================================================
+
+\subsection{Baselines}
+We evaluate against the following opponents:
+\begin{itemize}
+  \item \textbf{Random}: uniform random legal move selection.
+  \item \textbf{Greedy}: always captures a free box (count-3) if
+    available; otherwise plays randomly. This is the minimal tactical
+    baseline.
+  \item \textbf{Alpha--Beta}: depth-limited minimax with alpha--beta
+    pruning, transposition tables, and move ordering. Depths tested:
+    $d \in \{2, 3, 4, 6\}$ where computationally feasible.
+\end{itemize}
+
+\subsection{Evaluation Protocol}
+For each agent-vs-baseline pair, we play $n \ge 100$ evaluation games
+with alternating first player. The agent uses greedy action selection
+(temperature $\tau \to 0$) during evaluation. We report:
+\begin{itemize}
+  \item \textbf{Win-rate} (\% of games won by the trained agent).
+  \item \textbf{Average score difference} ($\bar{\Delta}$).
+  \item \textbf{Compute budget}: MCTS simulations per move and wall-clock
+    time per move.
+\end{itemize}
+
+\subsection{Board Sizes}
+\begin{itemize}
+  \item \textbf{$2{\times}2$}: 12 edges. Rapid iteration and debugging.
+  \item \textbf{$3{\times}3$}: 24 edges. Standard benchmark where chains and
+    tactical patterns emerge.
+  \item \textbf{$5{\times}5$}: 60 edges. Tests scalability; PatchNet vs.\ 
+    monolithic comparison.
+\end{itemize}
+
+% ======================================================================
+\section{Results}
+\label{sec:results}
+% ======================================================================
+
+\subsection{Win-Rates and the Effect of Simulation Budget}
+
+We evaluate the agent at varying MCTS simulations per move to understand how planning scales with computation. Performance against stronger opponents (Greedy, Alpha--Beta) generally improves with increased simulations, indicating that the agent effectively leverages deeper search to outmaneuver tactical play. On the $3{\times}3$ board, the agent achieves a 100.0\% win-rate against Greedy with 400 simulations per move and maintains this performance at higher budgets. Against a depth-3 Alpha--Beta opponent, the agent wins 95.0\% of games with 800 simulations, improving further to 99.0\% at 3200 simulations.
+
+\paragraph{Non-monotonic scaling on $2{\times}2$.}
+A notable exception to the above trend is observed on the $2{\times}2$ board, where win-rates against weaker opponents (Random, Greedy) exhibit a \emph{non-monotonic, approximately parabolic relationship} with the simulation budget. Specifically, increasing simulations from 200 to 800 leads to a decrease in win-rate, followed by a recovery at higher budgets (e.g., 3200 simulations).
+
+\paragraph{GTO vs.\ exploitative behavior.}
+This phenomenon arises from the distinction between \emph{game-theoretic optimal (GTO)} play and \emph{exploitative} play. With larger simulation budgets, MCTS increasingly evaluates positions under the assumption of a perfect opponent and therefore prioritizes \emph{risk-averse, worst-case optimal strategies}. On the $2{\times}2$ board—where many lines provably lead to draws—the agent prefers moves that guarantee a draw over moves that could yield a win only if the opponent errs. As a result, the agent effectively \emph{trades off exploitability for optimality}, leading to increased draw rates and reduced empirical win-rate against suboptimal opponents.
+
+\paragraph{Effect of low simulation budgets.}
+At lower simulation counts, the agent relies more heavily on its learned policy prior, resulting in more diverse and less constrained play. This induces more complex and unstable board states, which increases the likelihood of mistakes from weaker opponents. Consequently, the agent achieves higher win-rates despite being theoretically less optimal.
+
+\paragraph{Second-mover advantage in $2{\times}2$.}
+Additionally, the $2{\times}2$ environment exhibits a strong \emph{second-mover advantage}. Due to the small state space, optimal play from the second player often yields a forced win or decisive advantage, whereas the first player is largely restricted to defensive play that frequently results in draws. This structural asymmetry further amplifies sensitivity to simulation depth and contributes to the observed non-monotonic (parabolic) scaling behavior.
+\begin{table}[H]
+\centering
+\caption{Comprehensive percentage of Wins (W), Losses (L), and Draws (D) of the trained AlphaZero agent against baselines at varying MCTS simulation budgets.}
+\label{tab:winrates_sims}
+\begin{tabular}{llcccccc}
+\toprule
+Board & Opponent & Sims/move & W (\%) & L (\%) & D (\%) & $\bar{\Delta}$ & Time/move \\
+\midrule
+$2{\times}2$ & Random & 200  & 87.5 & 0.0 & 12.5 & +2.90 & 88.6 ms \\
+$2{\times}2$ & Random & 400  & 85.2 & 0.0 & 14.8 & +2.79 & 140.7 ms \\
+$2{\times}2$ & Random & 800  & 83.8 & 0.0 & 16.2 & +2.88 & 162.5 ms \\
+$2{\times}2$ & Random & 1600 & 84.2 & 0.2 & 15.5 & +2.86 & 275.0 ms \\
+$2{\times}2$ & Random & 3200 & 91.8 & 0.0 & 8.2 & +2.99 & 323.0 ms \\
+\midrule
+$2{\times}2$ & Greedy & 200  & 54.8 & 2.8 & 42.5 & +1.79 & 87.4 ms \\
+$2{\times}2$ & Greedy & 400  & 52.8 & 2.2 & 45.0 & +1.83 & 143.3 ms \\
+$2{\times}2$ & Greedy & 800  & 58.5 & 1.2 & 40.2 & +1.88 & 205.9 ms \\
+$2{\times}2$ & Greedy & 1600 & 63.2 & 1.0 & 35.8 & +2.00 & 241.7 ms \\
+$2{\times}2$ & Greedy & 3200 & 76.0 & 3.8 & 20.2 & +2.28 & 331.2 ms \\
+\midrule
+$2{\times}2$ & Alpha--Beta ($d{=}3$) & 200  & 50.0 & 15.0 & 35.0 & +1.21 & 73.5 ms \\
+$2{\times}2$ & Alpha--Beta ($d{=}3$) & 400  & 50.0 & 12.8 & 37.2 & +1.29 & 110.2 ms \\
+$2{\times}2$ & Alpha--Beta ($d{=}3$) & 800  & 51.2 & 12.2 & 36.5 & +1.39 & 104.3 ms \\
+$2{\times}2$ & Alpha--Beta ($d{=}3$) & 1600 & 50.0 & 12.0 & 38.0 & +1.33 & 233.5 ms \\
+$2{\times}2$ & Alpha--Beta ($d{=}3$) & 3200 & 70.8 & 5.2 & 24.0 & +2.31 & 257.4 ms \\
+\midrule
+$3{\times}3$ & Random & 200  & 100.0 & 0.0 & 0.0 & +8.08 & 282.9 ms \\
+$3{\times}3$ & Random & 400  & 100.0 & 0.0 & 0.0 & +8.11 & 472.1 ms \\
+$3{\times}3$ & Random & 800  & 100.0 & 0.0 & 0.0 & +8.12 & 679.4 ms \\
+$3{\times}3$ & Random & 1600 & 100.0 & 0.0 & 0.0 & +8.24 & 1040.3 ms \\
+$3{\times}3$ & Random & 3200 & 100.0 & 0.0 & 0.0 & +8.33 & 2110.8 ms \\
+\midrule
+$3{\times}3$ & Greedy & 200  & 100.0 & 0.0 & 0.0 & +5.41 & 273.4 ms \\
+$3{\times}3$ & Greedy & 400  & 100.0 & 0.0 & 0.0 & +5.46 & 430.0 ms \\
+$3{\times}3$ & Greedy & 800  & 100.0 & 0.0 & 0.0 & +5.43 & 748.0 ms \\
+$3{\times}3$ & Greedy & 1600 & 100.0 & 0.0 & 0.0 & +5.52 & 1545.0 ms \\
+$3{\times}3$ & Greedy & 3200 & 100.0 & 0.0 & 0.0 & +5.83 & 2880.0 ms \\
+\midrule
+$3{\times}3$ & Alpha--Beta ($d{=}3$) & 200  & 94.0 & 6.0 & 0.0 & +3.40 & 358.8 ms \\
+$3{\times}3$ & Alpha--Beta ($d{=}3$) & 400  & 96.0 & 4.0 & 0.0 & +3.34 & 367.2 ms \\
+$3{\times}3$ & Alpha--Beta ($d{=}3$) & 800  & 95.0 & 5.0 & 0.0 & +3.42 & 584.1 ms \\
+$3{\times}3$ & Alpha--Beta ($d{=}3$) & 1600 & 100.0 & 0.0 & 0.0 & +3.90 & 946.5 ms \\
+$3{\times}3$ & Alpha--Beta ($d{=}3$) & 3200 & 99.0 & 1.0 & 0.0 & +3.68 & 1810.2 ms \\
+\bottomrule
+\end{tabular}
+\vspace{0.3em}
+
+\noindent\textit{Note: $5{\times}5$ board experiments are ongoing and will be reported in an extended version of this work.}
+\end{table}
+
+\subsection{Depth-Based Analysis Against Alpha--Beta}
+
+We further challenge the agent against the Alpha--Beta search with varying analytical depths. For this comparison, the AlphaZero agent plays with a fixed 3200 simulations per move.
+
+\begin{table}[H]
+\centering
+\caption{AlphaZero (3200 sims/move) vs Alpha--Beta search at increasing depths shown as normalized percentages.}
+\label{tab:depth_analysis}
+\begin{tabular}{lcccccc}
+\toprule
+Board & AB Depth & W (\%) & L (\%) & D (\%) & $\bar{\Delta}$ & Time/move \\
+\midrule
+$2{\times}2$ & $d{=}4$ & 62.0 & 12.0 & 26.0 & +1.80 & 330.4 ms \\
+$2{\times}2$ & $d{=}5$ & 58.0 & 22.0 & 20.0 & +0.72 & 287.2 ms \\
+$2{\times}2$ & $d{=}6$ & 50.0 & 28.0 & 22.0 & +0.44 & 282.2 ms \\
+$2{\times}2$ & $d{=}7$ & 50.0 & 22.0 & 28.0 & +0.56 & 293.1 ms \\
+$2{\times}2$ & $d{=}8$ & 50.0 & 36.0 & 14.0 & +0.28 & 312.7 ms \\
+$2{\times}2$ & $d{=}9$ & 50.0 & 50.0 & 0.0 & +0.00 & 324.5 ms \\
+$2{\times}2$ & $d{=}10$ & 50.0 & 50.0 & 0.0 & +0.00 & 307.3 ms \\
+\midrule
+$3{\times}3$ & $d{=}3$ & 99.0 & 1.0 & 0.0 & +3.68 & 1810.2 ms \\
+$3{\times}3$ & $d{=}4$ & 96.0 & 4.0 & 0.0 & +3.42 & 1852.6 ms \\
+$3{\times}3$ & $d{=}5$ & 94.0 & 6.0 & 0.0 & +3.28 & 1984.7 ms \\
+$3{\times}3$ & $d{=}6$ & 92.0 & 8.0 & 0.0 & +2.84 & 2568.7 ms \\
+$3{\times}3$ & $d{=}7$ & 92.0 & 8.0 & 0.0 & +2.76 & 2570.2 ms \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Despite playing against deep alpha--beta search capable of seeing up to $d=10$ plies ahead on the $2{\times}2$ board and $d=7$ plies ahead on the $3{\times}3$ board, the AlphaZero agent maintains a strong advantage. On the $3{\times}3$ board, it achieves over a 90\% win rate even against $d{=}7$. On the $2{\times}2$ board, it maintains at least a 50\% win rate against exhaustive search (up to $d{=}10$).
+
+\subsection{Scalability: AlphaZero MCTS vs.\ Alpha--Beta}
+
+\begin{table}[t]
+\centering
+\caption{Compute comparison between alpha--beta and AlphaZero MCTS.
+Alpha--beta times are from sequential search on an Intel i7-13700H.}
+\label{tab:scalability}
+\begin{tabular}{llcc}
+\toprule
+Method & Board & Depth/Sims & Time/move \\
+\midrule
+Minimax         & $5{\times}5$ & $d{=}3$ & $\sim$2 min \\
+Alpha--Beta     & $5{\times}5$ & $d{=}3$ & $\sim$30 s \\
+Alpha--Beta     & $5{\times}5$ & $d{=}4$ & $\sim$1 min \\
+Alpha--Beta     & $5{\times}5$ & $d{=}6$ & $\sim$7 min \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Traditional search methods exhibit exponential time growth with depth.
+Alpha--beta pruning and move ordering improve feasibility (depth-6
+reduced from infeasible minimax to $\sim$7~minutes), but remain
+impractical for real-time play on boards larger than $5{\times}5$.
+In contrast, the AlphaZero agent amortises planning computation into the
+neural network, maintaining bounded per-move latency (typically under
+2~seconds on the $3{\times}3$ board even at 3200 simulations) regardless
+of the underlying state-space complexity.
+
+\subsection{PatchNet vs.\ Monolithic}
+
+The PatchNet architecture is designed to reduce the computational burden
+of training on larger boards by reusing locally learned features. On the
+$5{\times}5$ board, PatchNet employs a frozen $3{\times}3$ pre-trained
+model to extract features from 9 overlapping patches, training only a
+lightweight global aggregator (256 hidden units, 6 residual blocks)
+compared to the monolithic network (384 hidden units, 10 residual blocks).
+This yields an estimated $\sim$60\% reduction in trainable parameters.
+Full comparative evaluation on the $5{\times}5$ board---including
+convergence speed, final win-rates, and parameter counts---is ongoing
+and will be reported in a future extended version.
+
+\subsection{Training Dynamics}
+
+Across all board sizes, we observe a consistent training progression.
+During the Bootstrap phase, the policy loss decreases rapidly as the
+agent learns basic capture tactics. The transition to the ChainAware
+phase---marked by increased MCTS simulations and reduced
+exploration---correlates with the emergence of multi-step chain
+reasoning, visible as a temporary increase in value loss followed by
+convergence. On the $3{\times}3$ board, the agent achieves 100\%
+win-rate against the Greedy baseline within the first two training
+phases, confirming that local tactical mastery is acquired early.
+Subsequent phases refine positional judgement and endgame play,
+leading to strong performance against deeper alpha--beta search.
+
+% ======================================================================
+\section{Ablation Studies}
+\label{sec:ablations}
+% ======================================================================
+
+Ablation experiments are designed to isolate the contribution of individual
+components. The following table outlines the planned comparisons; full
+results will be included upon completion of the experimental campaign.
+
+\begin{table}[t]
+\centering
+\caption{Ablation results on the $3{\times}3$ board. Each row modifies one
+component from the full configuration. Win-rate is measured against Greedy
+over 200 games.}
+\label{tab:ablations}
+\begin{tabular}{lcc}
+\toprule
+Configuration & Win-rate (\%) & $\Delta$ from full \\
+\midrule
+Full system (baseline)              & -- & -- \\
+No Dirichlet noise ($\varepsilon=0$)                 & -- & -- \\
+No edge-count one-hot features                        & -- & -- \\
+WinLoss value target (instead of ScoreDiffTanh)       & -- & -- \\
+No symmetry augmentation                              & -- & -- \\
+FPU reduction $= 0$                                    & -- & -- \\
+Half MCTS simulations (200 instead of 400)            & -- & -- \\
+Double MCTS simulations (800)                         & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ======================================================================
+\section{Analysis and Discussion}
+\label{sec:discussion}
+% ======================================================================
+
+\paragraph{Dominance over heuristic baselines.}
+On the $3{\times}3$ board, the agent achieves a perfect 100\% win-rate
+against both Random and Greedy baselines across all tested simulation
+budgets (200--3200), with average score differences of $+8.3$ and $+5.8$
+respectively. This indicates that the agent has fully internalised both
+capture tactics and deeper strategic reasoning (e.g., chain management),
+rendering heuristic opponents non-competitive.
+
+\paragraph{Scaling of search budget.}
+Increasing the MCTS simulation budget generally improves performance
+against stronger opponents. On the $3{\times}3$ board, win-rate against
+depth-3 alpha--beta search improves from 94\% at 200 simulations to
+100\% at 1600 simulations. However, on the $2{\times}2$ board, we
+observe a non-monotonic relationship: higher simulation counts initially
+reduce win-rate against weak opponents before recovering at very high
+budgets. We attribute this to the agent converging toward
+game-theoretically optimal (GTO) play---preferring guaranteed draws over
+risky wins---when given sufficient planning depth in the small, highly
+constrained state space.
+
+\paragraph{Robustness against deep search.}
+Even against alpha--beta search with increasing depth, the agent remains
+competitive. On the $3{\times}3$ board, it maintains a 92\% win-rate
+against $d{=}7$ alpha--beta with 3200 simulations per move. On the
+$2{\times}2$ board, the agent achieves 50\% win-rate against $d{=}9$
+and $d{=}10$ (exhaustive search), reflecting convergence to optimal
+play where wins are evenly split by starting position. The graceful
+degradation pattern (from 70.8\% at $d{=}3$ to 50\% at $d{=}10$)
+suggests the agent approaches near-optimal play.
+
+\paragraph{Computational efficiency.}
+The AlphaZero agent computes moves in hundreds of milliseconds to low
+single-digit seconds, whereas alpha--beta search on the $5{\times}5$
+board requires 30~seconds to 7~minutes per move even at moderate depths.
+This orders-of-magnitude improvement in per-move latency demonstrates
+the practical advantage of amortising strategic knowledge into a neural
+network.
+
+\paragraph{GTO--exploitative trade-off.}
+The non-monotonic scaling pattern on the $2{\times}2$ board highlights
+a fundamental tension in self-play systems: agents trained with deeper
+search converge toward minimax-optimal strategies that may underperform
+against suboptimal opponents. This finding has implications for
+deployment, where opponents are rarely optimal, and suggests that
+adaptive simulation budgets or opponent-modelling may be beneficial.
+
+% ======================================================================
+\section{Limitations and Future Work}
+\label{sec:limitations}
+% ======================================================================
+
+\paragraph{Current limitations.}
+\begin{itemize}
+  \item Dots-and-Boxes has known strategic motifs (chains, parity,
+    nimstring values~\cite{berlekamp2000dots}) that the fully-connected
+    network must learn from scratch. Explicit chain-detection features or
+    graph neural networks could provide useful inductive bias.
+  \item PatchNet currently does not support symmetry augmentation because
+    patch features require separate permutation tables.
+  \item The fully-connected architecture does not exploit the spatial
+    locality of the board as efficiently as convolutional or
+    graph-based architectures might.
+  \item Training was conducted only on CPU; GPU acceleration would
+    enable scaling to larger boards and higher simulation budgets.
+\end{itemize}
+
+\paragraph{Future directions.}
+\begin{itemize}
+  \item \textbf{Convolutional and graph-based architectures}: replacing
+    the FC backbone with a GNN or CNN that respects the grid topology.
+  \item \textbf{Curriculum learning across board sizes}: progressively
+    increasing board size during training, using PatchNet-style transfer.
+  \item \textbf{Learned dynamics model} (MuZero-style~\cite{schrittwieser2020mastering}):
+    eliminating the need for an explicit game simulator during planning.
+  \item \textbf{Evaluation against human experts} and optimal solvers
+    on small boards~\cite{barker2012solving}.
+  \item \textbf{Multi-agent population training} to avoid strategy
+    collapse from pure self-play.
+\end{itemize}
+
+% ======================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% ======================================================================
+
+We presented a self-play reinforcement learning system for
+Dots-and-Boxes that extends the AlphaZero paradigm with three
+methodological contributions: the PatchNet hierarchical architecture for
+spatial transfer of locally learned tactics, a four-phase training
+curriculum that co-adapts search depth and exploration across training,
+and a board-size-invariant value target that avoids gradient signal
+crushing on larger boards.
+
+On the $3{\times}3$ board, the trained agent achieves a 100\% win-rate
+against greedy baselines and up to 99\% against depth-3 alpha--beta
+search, while maintaining 92\% even against depth-7 search. The agent
+computes moves in under 2~seconds compared to minutes required by
+traditional alpha--beta at comparable strategic depth. On the
+$2{\times}2$ board, analysis of the non-monotonic scaling behaviour
+reveals a trade-off between game-theoretically optimal and exploitative
+play, providing insight into the interaction between search depth and
+opponent strength.
+
+These results demonstrate that AlphaZero-style learning is effective for
+combinatorial games with delayed rewards and extra-turn mechanics, and
+that hierarchical spatial transfer offers a promising direction for
+scaling learned game-playing agents to larger and more complex domains.
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}

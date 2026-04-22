@@ -131,21 +131,23 @@ AlphaZeroBitAgent::NodeState AlphaZeroBitAgent::apply_action(const NodeState& st
     const int r = action.r;
     const int c = action.c;
 
-    std::vector<std::pair<int, int>> adj_boxes;
+    // Stack-allocated fixed array — max 2 adjacent boxes, no heap alloc
+    std::pair<int, int> adj_boxes[2];
+    int n_adj = 0;
     if (edge_type == 0) {
         next.h_edges.set(r * cols_ + c);
-        if (r > 0) adj_boxes.push_back({r - 1, c});
-        if (r < rows_) adj_boxes.push_back({r, c});
+        if (r > 0) adj_boxes[n_adj++] = {r - 1, c};
+        if (r < rows_) adj_boxes[n_adj++] = {r, c};
     } else {
         next.v_edges.set(r * (cols_ + 1) + c);
-        if (c > 0) adj_boxes.push_back({r, c - 1});
-        if (c < cols_) adj_boxes.push_back({r, c});
+        if (c > 0) adj_boxes[n_adj++] = {r, c - 1};
+        if (c < cols_) adj_boxes[n_adj++] = {r, c};
     }
 
     bool box_made = false;
-    for (const auto& box : adj_boxes) {
-        const int box_r = box.first;
-        const int box_c = box.second;
+    for (int bi = 0; bi < n_adj; bi++) {
+        const int box_r = adj_boxes[bi].first;
+        const int box_c = adj_boxes[bi].second;
         
         azb::FastBitset h_mask(n_h_edges_);
         h_mask.set(box_h_bits_[box_r * cols_ + box_c].first);
@@ -274,6 +276,7 @@ bool AlphaZeroBitAgent::try_expand(Node& node, bool is_root, float& out_value) {
         }
     }
 
+    node.children.reserve(actions.size());
     for (size_t i = 0; i < actions.size(); i++) {
         NodeState next_state = apply_action(node.state, actions[i]);
         Node* child = nullptr;
@@ -283,16 +286,15 @@ bool AlphaZeroBitAgent::try_expand(Node& node, bool is_root, float& out_value) {
             if (it != dag_table_.end()) {
                 child = it->second;
             } else {
-                child = new Node();
+                child = arena_.alloc();
                 child->state = next_state;
                 dag_table_[next_key] = child;
             }
         } else {
-            child = new Node();
+            child = arena_.alloc();
             child->state = next_state;
-            owned_nodes_.push_back(child);
         }
-        node.children[action_to_index(actions[i])] = {child, priors[i]};
+        node.children.push_back({action_to_index(actions[i]), child, priors[i]});
     }
 
     node.status = Node::Status::kExpanded;
@@ -306,22 +308,21 @@ std::pair<Action, AlphaZeroBitAgent::Node*> AlphaZeroBitAgent::select_child(Node
     Node* best_child = nullptr;
 
     int sum_visits = 0;
-    for (const auto& kv : node.children) sum_visits += kv.second.node->visits;
+    for (const auto& edge : node.children) sum_visits += edge.node->visits;
     const float sqrt_sum = std::sqrt(static_cast<float>(sum_visits + 1));
     const float parent_q = (node.visits > 0) ? node_value(node) : 0.0f;
     const float fpu_value = parent_q - fpu_reduction_;
 
-    for (const auto& kv : node.children) {
-        const uint32_t idx = kv.first;
-        Node* child = kv.second.node;
+    for (const auto& edge : node.children) {
+        Node* child = edge.node;
         const float q_value = (child->visits == 0) ? fpu_value : node_value(*child);
         const float action_value =
             (child->state.current_player == node.state.current_player) ? q_value : -q_value;
-        const float u_score = c_puct_ * kv.second.prior * sqrt_sum / (1.0f + child->visits);
+        const float u_score = c_puct_ * edge.prior * sqrt_sum / (1.0f + child->visits);
         const float score = action_value + u_score;
         if (score > best_score) {
             best_score = score;
-            best_idx = idx;
+            best_idx = edge.action_idx;
             best_child = child;
         }
     }
@@ -356,17 +357,7 @@ void AlphaZeroBitAgent::backpropagate(const std::vector<Node*>& path, float valu
 }
 
 Action AlphaZeroBitAgent::best_action(const Node& root, float temperature) {
-    std::vector<uint32_t> actions;
-    std::vector<float> weights;
-    actions.reserve(root.children.size());
-    weights.reserve(root.children.size());
-
-    for (const auto& kv : root.children) {
-        actions.push_back(kv.first);
-        weights.push_back(static_cast<float>(kv.second.node->visits));
-    }
-
-    if (actions.empty()) return Action{-1, -1, -1};
+    if (root.children.empty()) return Action{-1, -1, -1};
 
     auto idx_to_action = [&](uint32_t idx) -> Action {
         if (idx < static_cast<uint32_t>(n_h_edges_)) {
@@ -377,17 +368,19 @@ Action AlphaZeroBitAgent::best_action(const Node& root, float temperature) {
     };
 
     if (temperature <= 1e-3f) {
-        size_t best = 0;
-        for (size_t i = 1; i < weights.size(); i++) {
-            if (weights[i] > weights[best]) best = i;
+        const Node::Edge* best = &root.children[0];
+        for (size_t i = 1; i < root.children.size(); i++) {
+            if (root.children[i].node->visits > best->node->visits)
+                best = &root.children[i];
         }
-        return idx_to_action(actions[best]);
+        return idx_to_action(best->action_idx);
     }
 
-    std::vector<float> logits(weights.size(), 0.0f);
+    const size_t n = root.children.size();
+    std::vector<float> logits(n, 0.0f);
     float max_log = -1e30f;
-    for (size_t i = 0; i < weights.size(); i++) {
-        const float v = std::log(weights[i] + 1e-10f) / temperature;
+    for (size_t i = 0; i < n; i++) {
+        const float v = std::log(static_cast<float>(root.children[i].node->visits) + 1e-10f) / temperature;
         logits[i] = v;
         if (v > max_log) max_log = v;
     }
@@ -399,13 +392,13 @@ Action AlphaZeroBitAgent::best_action(const Node& root, float temperature) {
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
     float pick = dist(rng_) * sum;
     float acc = 0.0f;
-    for (size_t i = 0; i < logits.size(); i++) {
+    for (size_t i = 0; i < n; i++) {
         acc += logits[i];
         if (acc >= pick) {
-            return idx_to_action(actions[i]);
+            return idx_to_action(root.children[i].action_idx);
         }
     }
-    return idx_to_action(actions.back());
+    return idx_to_action(root.children.back().action_idx);
 }
 
 Action AlphaZeroBitAgent::act(const BitBoardEnv& env, bool return_probs, float temperature) {
@@ -413,17 +406,15 @@ Action AlphaZeroBitAgent::act(const BitBoardEnv& env, bool return_probs, float t
     inference_cache_.clear();  // Fresh cache per move — avoids stale entries
     pending_cache_.clear();
     dag_table_.clear();
-    owned_nodes_.clear();
+    arena_.reset();  // O(1) bulk dealloc — replaces individual delete calls
 
-    Node* root = new Node();
+    Node* root = arena_.alloc();
     root->state = NodeState{
         env.h_edges(), env.v_edges(), env.boxes_p1(), env.boxes_p2(),
         env.current_player(), env.done(), env.score_p1(), env.score_p2()
     };
     if (use_dag_) {
         dag_table_[state_key(root->state)] = root;
-    } else {
-        owned_nodes_.push_back(root);
     }
 
     int completed = 0;
@@ -448,8 +439,8 @@ Action AlphaZeroBitAgent::act(const BitBoardEnv& env, bool return_probs, float t
         completed++;
     }
 
-    for (const auto& kv : root->children) {
-        last_visit_counts_[kv.first] = kv.second.node->visits;
+    for (const auto& edge : root->children) {
+        last_visit_counts_[edge.action_idx] = edge.node->visits;
     }
 
     Action chosen;
@@ -465,18 +456,8 @@ Action AlphaZeroBitAgent::act(const BitBoardEnv& env, bool return_probs, float t
         chosen = best_action(*root, temperature);
     }
 
-    if (use_dag_) {
-        // Cleanup DAG
-        for (auto& kv : dag_table_) {
-            delete kv.second;
-        }
-        dag_table_.clear();
-    } else {
-        for (Node* node : owned_nodes_) {
-            delete node;
-        }
-        owned_nodes_.clear();
-    }
+    // Arena reset at the start of next act() handles cleanup
+    dag_table_.clear();
 
     return chosen;
 }

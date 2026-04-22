@@ -32,7 +32,7 @@ public:
 
     bool try_get(uint64_t request_id, PolicyValue& out) override {
         InferenceResponse resp;
-        if (!server_.try_get(request_id, resp)) return false;
+        if (!server_.try_get(worker_id_, request_id, resp)) return false;
         out = {std::move(resp.policy), resp.value};
         return true;
     }
@@ -112,18 +112,43 @@ public:
                         item.snapshot, cfg_.rows, cfg_.cols);
                 }
 
+                // Reconstruct legality from the stored snapshot so we always have a valid legal mask,
+                // even if MCTS visit counts are missing/empty (e.g., due to inference timeouts).
+                BitBoardEnv env_tmp(cfg_.rows, cfg_.cols);
+                env_tmp.set_state(item.snapshot.h_edges, item.snapshot.v_edges,
+                                  item.snapshot.boxes_p1, item.snapshot.boxes_p2,
+                                  item.snapshot.current_player, item.snapshot.done,
+                                  item.snapshot.score_p1, item.snapshot.score_p2);
+                const azb::FastBitset legal_bits = env_tmp.get_legal_actions_mask();
+
                 // Build policy tensor (MCTS visit counts, normalised)
                 auto policy_tensor = torch::zeros({action_size}, torch::kFloat32);
                 auto legal_mask = torch::zeros({action_size}, torch::kFloat32);
                 auto pacc = policy_tensor.accessor<float, 1>();
                 auto macc = legal_mask.accessor<float, 1>();
+
+                int n_legal = 0;
+                legal_bits.for_each_set_bit([&](size_t idx) {
+                    if (idx < static_cast<size_t>(action_size)) {
+                        macc[static_cast<int64_t>(idx)] = 1.0f;
+                        n_legal++;
+                    }
+                });
+
                 int total_visits = 0;
                 for (const auto& [idx, v] : item.visits) total_visits += v;
                 if (total_visits > 0) {
                     for (const auto& [idx, v] : item.visits) {
                         pacc[idx] = static_cast<float>(v) / total_visits;
-                        macc[idx] = 1.0f;
+                        // legal_mask already set from env_tmp; leave as-is.
                     }
+                } else if (n_legal > 0) {
+                    const float uniform = 1.0f / static_cast<float>(n_legal);
+                    legal_bits.for_each_set_bit([&](size_t idx) {
+                        if (idx < static_cast<size_t>(action_size)) {
+                            pacc[static_cast<int64_t>(idx)] = uniform;
+                        }
+                    });
                 }
 
                 float z = value_from_scores(cfg_.value_eval, item.player,

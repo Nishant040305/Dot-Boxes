@@ -70,7 +70,9 @@ static void print_help() {
 
 int main(int argc, char* argv[]) {
     // LibTorch internal threads for matrix ops in inference.
-    torch::set_num_threads(2);
+    // Tuned for i7-13700H: 4 intra-op threads for DNNL/OpenMP matrix ops,
+    // leaving remaining cores for the 16 MCTS self-play workers.
+    torch::set_num_threads(4);
     torch::set_num_interop_threads(1);
 
     azb::TrainConfig cfg;

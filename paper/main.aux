@@ -1,0 +1,176 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyperFirstAtBeginDocument{\AtBeginDocument}
+\HyperFirstAtBeginDocument{\ifx\hyper@anchor\@undefined
+\global\let\oldnewlabel\newlabel
+\gdef\newlabel#1#2{\newlabelxx{#1}#2}
+\gdef\newlabelxx#1#2#3#4#5#6{\oldnewlabel{#1}{{#2}{#3}}}
+\AtEndDocument{\ifx\hyper@anchor\@undefined
+\let\newlabel\oldnewlabel
+\fi}
+\fi}
+\global\let\hyper@last\relax 
+\gdef\HyperFirstAtBeginDocument#1{#1}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{berlekamp2000dots}
+\citation{barker2012solving}
+\citation{silver2017mastering}
+\citation{silver2018general}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\citation{silver2017mastering}
+\citation{silver2018general}
+\citation{rosin2011multi}
+\citation{schrittwieser2020mastering}
+\citation{coulom2006efficient}
+\citation{kocsis2006bandit}
+\citation{berlekamp2000dots}
+\citation{barker2012solving}
+\citation{lin1992self}
+\citation{silver2017mastering}
+\citation{bansal2018emergent}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Background and Related Work}{2}{section.2}\protected@file@percent }
+\newlabel{sec:background}{{2}{2}{Background and Related Work}{section.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{AlphaZero and self-play RL.}{2}{section*.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{MCTS foundations.}{2}{section*.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Dots-and-Boxes.}{2}{section*.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Replay buffers and experience replay.}{2}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Symmetry in game AI.}{2}{section*.5}\protected@file@percent }
+\citation{schaeffer2007checkers}
+\citation{silver2018general}
+\@writefile{toc}{\contentsline {paragraph}{Transfer learning in games.}{3}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Dots-and-Boxes Formalisation}{3}{section.3}\protected@file@percent }
+\newlabel{sec:game}{{3}{3}{Dots-and-Boxes Formalisation}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Board Geometry}{3}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Bitboard State Representation}{3}{subsection.3.2}\protected@file@percent }
+\newlabel{sec:bitboard}{{3.2}{3}{Bitboard State Representation}{subsection.3.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}State-Space Complexity}{3}{subsection.3.3}\protected@file@percent }
+\newlabel{sec:statespace}{{3.3}{3}{State-Space Complexity}{subsection.3.3}{}}
+\citation{kingma2015adam}
+\citation{ba2016layer}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces State-space upper bounds and action-space sizes for representative board sizes.\relax }}{4}{table.caption.7}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{tab:statespace}{{1}{4}{State-space upper bounds and action-space sizes for representative board sizes.\relax }{table.caption.7}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Method}{4}{section.4}\protected@file@percent }
+\newlabel{sec:method}{{4}{4}{Method}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}System Architecture}{4}{subsection.4.1}\protected@file@percent }
+\newlabel{sec:architecture}{{4.1}{4}{System Architecture}{subsection.4.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Policy--Value Network (AlphaZeroBitNet)}{4}{subsection.4.2}\protected@file@percent }
+\newlabel{sec:network}{{4.2}{4}{Policy--Value Network (AlphaZeroBitNet)}{subsection.4.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{Input features.}{4}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Architecture.}{4}{section*.10}\protected@file@percent }
+\citation{silver2018general}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces End-to-end architecture of the training pipeline. Self-play workers, the inference server, and the trainer operate concurrently.\relax }}{5}{figure.caption.8}\protected@file@percent }
+\newlabel{fig:architecture}{{1}{5}{End-to-end architecture of the training pipeline. Self-play workers, the inference server, and the trainer operate concurrently.\relax }{figure.caption.8}{}}
+\@writefile{toc}{\contentsline {paragraph}{Illegal move masking.}{5}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Hierarchical Patch-Based Network (PatchNet)}{5}{subsection.4.3}\protected@file@percent }
+\newlabel{sec:patchnet}{{4.3}{5}{Hierarchical Patch-Based Network (PatchNet)}{subsection.4.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Core idea.}{5}{section*.12}\protected@file@percent }
+\citation{rosin2011multi}
+\@writefile{toc}{\contentsline {paragraph}{Architecture details.}{6}{section*.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Transfer training protocol.}{6}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Advantages.}{6}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Monte Carlo Tree Search}{6}{subsection.4.4}\protected@file@percent }
+\newlabel{sec:mcts}{{4.4}{6}{Monte Carlo Tree Search}{subsection.4.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{Dirichlet exploration noise.}{6}{section*.16}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Asynchronous MCTS root search (conceptual)\relax }}{7}{algorithm.1}\protected@file@percent }
+\newlabel{alg:async}{{1}{7}{Asynchronous MCTS root search (conceptual)\relax }{algorithm.1}{}}
+\@writefile{toc}{\contentsline {paragraph}{First-play urgency (FPU) reduction.}{7}{section*.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Extra-turn value conversion.}{7}{section*.18}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Temperature-based action selection.}{7}{section*.19}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}Asynchronous MCTS}{7}{subsection.4.5}\protected@file@percent }
+\newlabel{sec:async}{{4.5}{7}{Asynchronous MCTS}{subsection.4.5}{}}
+\citation{silver2018general}
+\citation{kingma2015adam}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6}Tree vs.\ DAG Search}{8}{subsection.4.6}\protected@file@percent }
+\newlabel{sec:dag}{{4.6}{8}{Tree vs.\ DAG Search}{subsection.4.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.7}Capture Boost Prior}{8}{subsection.4.7}\protected@file@percent }
+\newlabel{sec:captureboost}{{4.7}{8}{Capture Boost Prior}{subsection.4.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.8}Training Pipeline}{8}{subsection.4.8}\protected@file@percent }
+\newlabel{sec:selfplay}{{4.8}{8}{Training Pipeline}{subsection.4.8}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.8.1}Training Targets and Loss}{8}{subsubsection.4.8.1}\protected@file@percent }
+\newlabel{sec:loss}{{4.8.1}{8}{Training Targets and Loss}{subsubsection.4.8.1}{}}
+\newlabel{eq:loss}{{8}{8}{Training Targets and Loss}{equation.4.8}{}}
+\@writefile{toc}{\contentsline {paragraph}{Optimisation.}{8}{section*.20}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Value target definitions. $B = rc$ is the total number of boxes, $\Delta = s_{\text  {me}} - s_{\text  {opp}}$.\relax }}{9}{table.caption.21}\protected@file@percent }
+\newlabel{tab:valuetargets}{{2}{9}{Value target definitions. $B = rc$ is the total number of boxes, $\Delta = s_{\text {me}} - s_{\text {opp}}$.\relax }{table.caption.21}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Phased training curriculum (example for $5{\times }5$ board). $S$: MCTS sims, $\eta $: learning rate, $\tau _e/\tau _x$: explore/exploit temperature, $\beta $: capture boost.\relax }}{9}{table.caption.24}\protected@file@percent }
+\newlabel{tab:phases}{{3}{9}{Phased training curriculum (example for $5{\times }5$ board). $S$: MCTS sims, $\eta $: learning rate, $\tau _e/\tau _x$: explore/exploit temperature, $\beta $: capture boost.\relax }{table.caption.24}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.8.2}Value Target Design}{9}{subsubsection.4.8.2}\protected@file@percent }
+\newlabel{sec:valuetargets}{{4.8.2}{9}{Value Target Design}{subsubsection.4.8.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{The signal-crushing problem.}{9}{section*.22}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Board-size-invariant target.}{9}{section*.23}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.8.3}Phased Training Curriculum}{9}{subsubsection.4.8.3}\protected@file@percent }
+\newlabel{sec:curriculum}{{4.8.3}{9}{Phased Training Curriculum}{subsubsection.4.8.3}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.8.4}Self-Play, Replay Buffer, and Batched Inference}{10}{subsubsection.4.8.4}\protected@file@percent }
+\newlabel{sec:replay}{{4.8.4}{10}{Self-Play, Replay Buffer, and Batched Inference}{subsubsection.4.8.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{Self-play workers.}{10}{section*.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Batched inference server.}{10}{section*.26}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Replay buffer.}{10}{section*.27}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.8.5}Symmetry Augmentation}{10}{subsubsection.4.8.5}\protected@file@percent }
+\newlabel{sec:symmetry}{{4.8.5}{10}{Symmetry Augmentation}{subsubsection.4.8.5}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Implementation Details}{10}{section.5}\protected@file@percent }
+\newlabel{sec:implementation}{{5}{10}{Implementation Details}{section.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{Language and framework.}{10}{section*.28}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Default network and MCTS hyperparameters by board size.\relax }}{11}{table.caption.30}\protected@file@percent }
+\newlabel{tab:hyperparams}{{4}{11}{Default network and MCTS hyperparameters by board size.\relax }{table.caption.30}{}}
+\@writefile{toc}{\contentsline {paragraph}{Hyperparameters.}{11}{section*.29}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Reproducibility.}{11}{section*.31}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Experimental Setup}{11}{section.6}\protected@file@percent }
+\newlabel{sec:experiments}{{6}{11}{Experimental Setup}{section.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Baselines}{11}{subsection.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Evaluation Protocol}{11}{subsection.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.3}Board Sizes}{12}{subsection.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Results}{12}{section.7}\protected@file@percent }
+\newlabel{sec:results}{{7}{12}{Results}{section.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Win-Rates and the Effect of Simulation Budget}{12}{subsection.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Non-monotonic scaling on $2{\times }2$.}{12}{section*.32}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{GTO vs.\ exploitative behavior.}{12}{section*.33}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Effect of low simulation budgets.}{12}{section*.34}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Second-mover advantage in $2{\times }2$.}{12}{section*.35}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Comprehensive percentage of Wins (W), Losses (L), and Draws (D) of the trained AlphaZero agent against baselines at varying MCTS simulation budgets.\relax }}{13}{table.caption.36}\protected@file@percent }
+\newlabel{tab:winrates_sims}{{5}{13}{Comprehensive percentage of Wins (W), Losses (L), and Draws (D) of the trained AlphaZero agent against baselines at varying MCTS simulation budgets.\relax }{table.caption.36}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Depth-Based Analysis Against Alpha--Beta}{13}{subsection.7.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Compute comparison between alpha--beta and AlphaZero MCTS. Alpha--beta times are from sequential search on an Intel i7-13700H.\relax }}{14}{table.caption.38}\protected@file@percent }
+\newlabel{tab:scalability}{{7}{14}{Compute comparison between alpha--beta and AlphaZero MCTS. Alpha--beta times are from sequential search on an Intel i7-13700H.\relax }{table.caption.38}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces AlphaZero (3200 sims/move) vs Alpha--Beta search at increasing depths shown as normalized percentages.\relax }}{14}{table.caption.37}\protected@file@percent }
+\newlabel{tab:depth_analysis}{{6}{14}{AlphaZero (3200 sims/move) vs Alpha--Beta search at increasing depths shown as normalized percentages.\relax }{table.caption.37}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3}Scalability: AlphaZero MCTS vs.\ Alpha--Beta}{14}{subsection.7.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4}PatchNet vs.\ Monolithic}{14}{subsection.7.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.5}Training Dynamics}{15}{subsection.7.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8}Ablation Studies}{15}{section.8}\protected@file@percent }
+\newlabel{sec:ablations}{{8}{15}{Ablation Studies}{section.8}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces Ablation results on the $3{\times }3$ board. Each row modifies one component from the full configuration. Win-rate is measured against Greedy over 200 games.\relax }}{16}{table.caption.39}\protected@file@percent }
+\newlabel{tab:ablations}{{8}{16}{Ablation results on the $3{\times }3$ board. Each row modifies one component from the full configuration. Win-rate is measured against Greedy over 200 games.\relax }{table.caption.39}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9}Analysis and Discussion}{16}{section.9}\protected@file@percent }
+\newlabel{sec:discussion}{{9}{16}{Analysis and Discussion}{section.9}{}}
+\@writefile{toc}{\contentsline {paragraph}{Dominance over heuristic baselines.}{16}{section*.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Scaling of search budget.}{16}{section*.41}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Robustness against deep search.}{16}{section*.42}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Computational efficiency.}{16}{section*.43}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{GTO--exploitative trade-off.}{16}{section*.44}\protected@file@percent }
+\citation{berlekamp2000dots}
+\citation{schrittwieser2020mastering}
+\citation{barker2012solving}
+\bibstyle{plain}
+\bibdata{refs}
+\bibcite{ba2016layer}{1}
+\@writefile{toc}{\contentsline {section}{\numberline {10}Limitations and Future Work}{17}{section.10}\protected@file@percent }
+\newlabel{sec:limitations}{{10}{17}{Limitations and Future Work}{section.10}{}}
+\@writefile{toc}{\contentsline {paragraph}{Current limitations.}{17}{section*.45}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Future directions.}{17}{section*.46}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11}Conclusion}{17}{section.11}\protected@file@percent }
+\newlabel{sec:conclusion}{{11}{17}{Conclusion}{section.11}{}}
+\bibcite{bansal2018emergent}{2}
+\bibcite{barker2012solving}{3}
+\bibcite{berlekamp2000dots}{4}
+\bibcite{coulom2006efficient}{5}
+\bibcite{kingma2015adam}{6}
+\bibcite{kocsis2006bandit}{7}
+\bibcite{lin1992self}{8}
+\bibcite{rosin2011multi}{9}
+\bibcite{schaeffer2007checkers}{10}
+\bibcite{schrittwieser2020mastering}{11}
+\bibcite{silver2018general}{12}
+\bibcite{silver2017mastering}{13}
+\gdef \@abspage@last{18}

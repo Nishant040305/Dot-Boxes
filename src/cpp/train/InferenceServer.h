@@ -37,15 +37,22 @@ struct InferenceResponse {
     float value = 0.0f;
 };
 
+/// Per-worker response slot — reduces lock contention.
+/// Each worker only reads its own slot, so no cross-worker mutex contention.
+struct alignas(64) WorkerSlot {  // Cache-line aligned to prevent false sharing
+    std::mutex mu;
+    std::unordered_map<uint64_t, InferenceResponse> responses;
+};
+
 /// Batched inference server — runs model on a dedicated thread.
 /// Uses ModelHandle for model-agnostic preprocessing and forward pass.
+/// Uses per-worker response slots to minimize lock contention.
 class InferenceServer {
 public:
     InferenceServer(ModelHandle& model, torch::Device device, int num_workers,
                     int max_batch_size = 16)
-        : model_(model), device_(device), max_batch_(max_batch_size) {
-        (void)num_workers;
-    }
+        : model_(model), device_(device), max_batch_(max_batch_size),
+          worker_slots_(num_workers) {}
 
     /// Submit a request (called by worker threads). Throws ShutdownException on stop.
     uint64_t submit(int worker_id, const StateSnapshot& state) {
@@ -60,13 +67,29 @@ public:
     }
 
     /// Try to fetch a response without blocking. Returns true if ready.
-    bool try_get(uint64_t request_id, InferenceResponse& out) {
-        std::lock_guard<std::mutex> lock(resp_mu_);
-        auto it = responses_.find(request_id);
-        if (it == responses_.end()) return false;
+    /// Each worker only accesses its own slot — no cross-worker contention.
+    bool try_get(int worker_id, uint64_t request_id, InferenceResponse& out) {
+        auto& slot = worker_slots_[worker_id];
+        std::lock_guard<std::mutex> lock(slot.mu);
+        auto it = slot.responses.find(request_id);
+        if (it == slot.responses.end()) return false;
         out = std::move(it->second);
-        responses_.erase(it);
+        slot.responses.erase(it);
         return true;
+    }
+
+    /// Legacy overload for backward compatibility (uses global map).
+    bool try_get(uint64_t request_id, InferenceResponse& out) {
+        // Fallback: search all worker slots (used by server.cpp ServerNNPolicy)
+        for (auto& slot : worker_slots_) {
+            std::lock_guard<std::mutex> lock(slot.mu);
+            auto it = slot.responses.find(request_id);
+            if (it == slot.responses.end()) continue;
+            out = std::move(it->second);
+            slot.responses.erase(it);
+            return true;
+        }
+        return false;
     }
 
     /// Run the inference loop (call from dedicated thread). Blocks until stop() is called.
@@ -134,7 +157,7 @@ private:
         auto probs = torch::softmax(logits, /*dim=*/1).cpu();
         auto vals = values.cpu();
 
-        // Dispatch results to workers
+        // Dispatch results to per-worker slots — minimal lock contention
         for (int i = 0; i < bs; i++) {
             const int wid = batch[i].worker_id;
             auto prob_acc = probs[i];
@@ -142,9 +165,9 @@ private:
                                       prob_acc.data_ptr<float>() + prob_acc.numel());
             float value = vals[i].item<float>();
 
-            (void)wid;
-            std::lock_guard<std::mutex> lock(resp_mu_);
-            responses_[batch[i].request_id] = {std::move(policy), value};
+            auto& slot = worker_slots_[wid];
+            std::lock_guard<std::mutex> lock(slot.mu);
+            slot.responses[batch[i].request_id] = {std::move(policy), value};
         }
     }
 
@@ -157,9 +180,8 @@ private:
     std::mutex req_mu_;
     std::condition_variable req_cv_;
 
-    // Completed responses
-    std::unordered_map<uint64_t, InferenceResponse> responses_;
-    std::mutex resp_mu_;
+    // Per-worker response slots — each worker only accesses its own slot
+    std::vector<WorkerSlot> worker_slots_;
     std::atomic<uint64_t> next_id_{1};
 
     std::atomic<bool> stopped_{false};

@@ -1,0 +1,85 @@
+\begin{thebibliography}{10}
+
+\bibitem{ba2016layer}
+Jimmy~Lei Ba, Jamie~Ryan Kiros, and Geoffrey~E. Hinton.
+\newblock Layer normalization.
+\newblock {\em arXiv preprint arXiv:1607.06450}, 2016.
+
+\bibitem{bansal2018emergent}
+Trapit Bansal, Jakub Pachocki, Szymon Sidor, Ilya Sutskever, and Igor Mordatch.
+\newblock Emergent complexity via multi-agent competition.
+\newblock In {\em Proceedings of the International Conference on Learning
+  Representations (ICLR)}, 2018.
+
+\bibitem{barker2012solving}
+Joseph~K. Barker and Richard~E. Korf.
+\newblock Solving {Dots-and-Boxes}.
+\newblock In {\em Proceedings of the AAAI Conference on Artificial
+  Intelligence}, pages 414--419, 2012.
+
+\bibitem{berlekamp2000dots}
+Elwyn~R. Berlekamp.
+\newblock {\em The Dots and Boxes Game: Sophisticated Child's Play}.
+\newblock A K Peters/CRC Press, 2000.
+
+\bibitem{coulom2006efficient}
+R{\'e}mi Coulom.
+\newblock Efficient selectivity and backup operators in {Monte-Carlo} tree
+  search.
+\newblock In {\em International Conference on Computers and Games}, pages
+  72--83. Springer, 2006.
+
+\bibitem{kingma2015adam}
+Diederik~P. Kingma and Jimmy Ba.
+\newblock Adam: A method for stochastic optimization.
+\newblock In {\em Proceedings of the International Conference on Learning
+  Representations (ICLR)}, 2015.
+
+\bibitem{kocsis2006bandit}
+Levente Kocsis and Csaba Szepesv{\'a}ri.
+\newblock Bandit based {Monte-Carlo} planning.
+\newblock In {\em European Conference on Machine Learning}, pages 282--293.
+  Springer, 2006.
+
+\bibitem{lin1992self}
+Long-Ji Lin.
+\newblock Self-improving reactive agents based on reinforcement learning,
+  planning and teaching.
+\newblock {\em Machine Learning}, 8(3--4):293--321, 1992.
+
+\bibitem{rosin2011multi}
+Christopher~D. Rosin.
+\newblock Multi-armed bandits with episode context.
+\newblock {\em Annals of Mathematics and Artificial Intelligence},
+  61(3):203--230, 2011.
+
+\bibitem{schaeffer2007checkers}
+Jonathan Schaeffer, Neil Burch, Yngvi Bj{\"o}rnsson, Akihiro Kishimoto, Martin
+  M{\"u}ller, Robert Lake, Paul Lu, and Steve Sutphen.
+\newblock Checkers is solved.
+\newblock {\em Science}, 317(5844):1518--1522, 2007.
+
+\bibitem{schrittwieser2020mastering}
+Julian Schrittwieser, Ioannis Antonoglou, Thomas Hubert, Karen Simonyan,
+  Laurent Sifre, Simon Schmitt, Arthur Guez, Edward Lockhart, Demis Hassabis,
+  Thore Graepel, Timothy Lillicrap, and David Silver.
+\newblock Mastering {Atari}, {Go}, chess and shogi by planning with a learned
+  model.
+\newblock {\em Nature}, 588(7839):604--609, 2020.
+
+\bibitem{silver2018general}
+David Silver, Thomas Hubert, Julian Schrittwieser, Ioannis Antonoglou, Matthew
+  Lai, Arthur Guez, Marc Lanctot, Laurent Sifre, Dharshan Kumaran, Thore
+  Graepel, et~al.
+\newblock A general reinforcement learning algorithm that masters chess, shogi,
+  and {Go} through self-play.
+\newblock {\em Science}, 362(6419):1140--1144, 2018.
+
+\bibitem{silver2017mastering}
+David Silver, Julian Schrittwieser, Karen Simonyan, Ioannis Antonoglou, Aja
+  Huang, Arthur Guez, Thomas Hubert, Lucas Baker, Matthew Lai, Adrian Bolton,
+  et~al.
+\newblock Mastering the game of {Go} without human knowledge.
+\newblock {\em Nature}, 550(7676):354--359, 2017.
+
+\end{thebibliography}

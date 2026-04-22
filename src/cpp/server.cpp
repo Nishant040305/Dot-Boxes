@@ -111,6 +111,11 @@ private:
 
 
 int main(int argc, char* argv[]) {
+    // LibTorch internal threads for matrix ops in inference.
+    // Tuned for i7-13700H: use 4 threads for DNNL/OpenMP matrix ops.
+    torch::set_num_threads(4);
+    torch::set_num_interop_threads(1);
+
     int rows = 3, cols = -1, mcts_sims = 400, hidden = 256, blocks = 6;
     std::string model_path;
     float temperature = 0.0f;

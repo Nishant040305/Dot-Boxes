@@ -13,7 +13,6 @@ libtorch/
 3x3/
 _*/
 *.sh
-paper/
 scripts/
 training_logs/
 _*

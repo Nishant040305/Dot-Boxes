@@ -27,8 +27,22 @@ public:
     void train();
 
 private:
-    /// Run one training epoch. Returns loss value.
-    float train_epoch(torch::optim::Adam& optimizer);
+    struct TrainLossStats {
+        float loss = 0.0f;
+        float value_loss = 0.0f;
+        float policy_loss = 0.0f;
+        int batches = 0;
+    };
+
+    /// Run one training epoch. Returns average losses over the epoch.
+    /// If batch_debug_csv is non-null, writes policy/legality diagnostics for this epoch.
+    TrainLossStats train_epoch(torch::optim::Adam& optimizer,
+                               std::ostream* batch_debug_csv,
+                               size_t phase_idx,
+                               const std::string& phase_name,
+                               int iter_1_based,
+                               int epoch_1_based,
+                               int epochs_total);
 
     /// Get the model save path.
     std::string model_path() const;
