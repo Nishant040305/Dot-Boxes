@@ -1,4 +1,4 @@
-static azb::TrainConfig make_5x5_config() {
+static azb::TrainConfig make_5x5_cnn_kaggle_config() {
     azb::TrainConfig cfg;
 
     // ════════════════════════════════════════════════════════
@@ -8,66 +8,60 @@ static azb::TrainConfig make_5x5_config() {
     cfg.cols = 5;
 
     // ════════════════════════════════════════════════════════
-    //  NETWORK  —  scaled up for 5x5 complexity
+    //  NETWORK  —  CNN architecture (same as local config)
     //
-    //  5x5 state space is ~2^60 vs 4x3's ~2^31.  The network
-    //  must reason about chains across 25 boxes (vs 12), which
-    //  requires both wider layers (384 vs 128) and deeper
-    //  residual tower (10 vs 6) to propagate chain information
-    //  across the full board.
+    //  Uses 2D convolutional residual blocks instead of
+    //  fully-connected layers.  The board is encoded as an
+    //  11-channel spatial tensor of shape (6, 6) for 5×5.
     // ════════════════════════════════════════════════════════
-    cfg.hidden_size    = 384;
-    cfg.num_res_blocks = 10;
-    cfg.dropout        = 0.06f;
+    cfg.use_cnn_net     = true;
+    cfg.cnn_channels    = 128;     // conv feature channels
+    cfg.num_res_blocks  = 10;      // conv residual blocks
+    cfg.dropout         = 0.06f;
+
+    // FC params not used by CNN, but set for compatibility
+    cfg.hidden_size     = 384;
 
     // ════════════════════════════════════════════════════════
     //  MCTS
     // ════════════════════════════════════════════════════════
-    //  c_puct = 1.6: 5x5 has ~60 legal moves early on. Higher
-    //  exploration pressure is essential to find forcing sequences
-    //  in the large branching factor.
     cfg.c_puct            = 1.6f;
-
-    //  dirichlet_alpha = 0.10: lower than 4x3's 0.15 because
-    //  each move needs less noise when there are more moves.
-    //  0.10 * ~60 moves ≈ 6.0 total noise mass, matching 4x3's
-    //  0.15 * ~30 ≈ 4.5 (slightly higher to encourage exploration
-    //  in the larger space).
     cfg.dirichlet_alpha   = 0.10f;
     cfg.dirichlet_epsilon = 0.25f;
-
     cfg.fpu_reduction     = 0.20f;
     cfg.use_dag           = false;
 
     // ════════════════════════════════════════════════════════
-    //  SELF-PLAY  (global defaults, overridden per phase)
+    //  SELF-PLAY
+    //
+    //  Kaggle T4 GPU:  NN inference is ~10× faster than CPU.
+    //  Bottleneck shifts to CPU-side MCTS tree operations.
+    //  With only 4 CPU cores we use 4 workers, but can afford
+    //  higher sims since GPU inference is essentially free.
     // ════════════════════════════════════════════════════════
     cfg.mcts_sims         = 1600;
-    cfg.episodes_per_iter = 200;
+    cfg.episodes_per_iter = 100;   // fewer games per iter (4 workers vs 16)
     cfg.num_iters         = 200;
 
     // ════════════════════════════════════════════════════════
     //  TRAINING
+    //
+    //  GPU training is much faster, so we can afford more
+    //  epochs per iteration without a time penalty.
     // ════════════════════════════════════════════════════════
     cfg.batch_size    = 256;
     cfg.epochs        = 12;
     cfg.learning_rate = 0.0003f;
 
-    // Loss coefficients: reduced policy weight from 2.0 to 1.5 because
-    // at plateau the policy loss (3.13) consumed 94% of combined loss,
-    // starving the value head of gradient signal.
     cfg.value_loss_weight  = 1.0f;
     cfg.policy_loss_weight = 1.0f;
     cfg.grad_clip_norm     = 5.0f;
 
-    // Entropy regularization: penalizes near-uniform policy outputs.
-    // At plateau the policy was ~ln(23) ≈ 3.13, essentially uniform
-    // over legal moves.  Subtracting 0.01 × H(π) from the loss
-    // pushes the network toward confident, peaked predictions.
+    // Entropy regularization: prevents policy head collapse
     cfg.entropy_coeff      = 0.01f;
 
     // ════════════════════════════════════════════════════════
-    //  TEMPERATURE  (global defaults)
+    //  TEMPERATURE
     // ════════════════════════════════════════════════════════
     cfg.temp_threshold = 12;
     cfg.temp_explore   = 0.6f;
@@ -75,68 +69,50 @@ static azb::TrainConfig make_5x5_config() {
 
     // ════════════════════════════════════════════════════════
     //  POLICY TARGET SHARPENING
-    //
-    //  Reduced from τ=0.1 to τ=0.05 (inv_temp=20) to create
-    //  even sharper targets.  At τ=0.05 the top MCTS move gets
-    //  >95% of target mass, giving the network a clear, strong
-    //  gradient signal to break through the policy plateau.
     // ════════════════════════════════════════════════════════
-    cfg.policy_target_temp = 0.05f;
+    cfg.policy_target_temp = 0.1f;
 
     // ════════════════════════════════════════════════════════
     //  REPLAY BUFFER
     // ════════════════════════════════════════════════════════
-    //  Reduced from 60k → 40k so the buffer turns over faster,
-    //  ensuring training data reflects the current (stronger)
-    //  policy rather than stale positions from earlier iters.
-    cfg.use_augmentation = true;
-    cfg.buffer_capacity = 40000;
+    cfg.use_augmentation = false;
+    cfg.buffer_capacity = 60000;
     cfg.buffer_grow     = 0;
 
     // ════════════════════════════════════════════════════════
-    //  PARALLELISM
+    //  PARALLELISM — tuned for Kaggle T4 (4 CPU cores)
+    //
+    //  - 4 workers  (1 per core, no over-subscription)
+    //  - Larger inference batch since GPU can handle it and
+    //    we want to amortize kernel launch overhead
     // ════════════════════════════════════════════════════════
-    cfg.num_workers         = 16;
-    cfg.max_inference_batch = 128;
+    cfg.num_workers         = 4;
+    cfg.max_inference_batch = 64;    // 4 workers can't fill 128
 
     // ════════════════════════════════════════════════════════
-    //  CHECKPOINTS
+    //  CHECKPOINTS — save frequently for 12h session safety
     // ════════════════════════════════════════════════════════
-    cfg.keep_checkpoints = 5;
-    cfg.model_name       = "alphazero_5x5";
-    cfg.model_dir        = "../models/_5x5";
+    cfg.keep_checkpoints = 3;
+    cfg.model_name       = "alphazero_5x5_cnn";
+    cfg.model_dir        = "/kaggle/working/models_5x5_cnn";
 
     // ════════════════════════════════════════════════════════
-    //  VALUE EVALUATION  —  kScoreDiffScaled
-    //
-    //  This is the CRITICAL fix.  kScoreDiffTanh divides by
-    //  total_boxes before tanh, which crushes the training
-    //  signal on 5x5 (values cluster in [-0.2, +0.2]).
-    //
-    //  kScoreDiffScaled uses tanh(0.5 * raw_score_diff):
-    //    1-box lead → 0.46   (strong, discriminative)
-    //    2-box lead → 0.76   (clearly winning)
-    //    3-box lead → 0.91   (decisive)
-    //
-    //  Board-size invariant — same signal on 4x3, 5x5, or 7x8.
+    //  VALUE EVALUATION
     // ════════════════════════════════════════════════════════
     cfg.value_eval = azb::ValueEval::kScoreDiffScaled;
 
     // ════════════════════════════════════════════════════════
-    //  PHASES
+    //  PHASES  —  optimised for ~12h Kaggle session
     //
-    //  p1: 200 iters × 1600 sims — bootstrap
-    //  p2: 400 iters × 3200 sims — refinement
-    //  p3: 200 iters × 5000 sims — deep search
-    //  p4: 400 iters × 3200 sims — policy refinement
-    //      Drops sims back to 3200 to force MCTS to rely on the
-    //      network prior (at 5000 sims MCTS brute-forces good
-    //      moves and the policy head stops improving).  Lower
-    //      LR + more epochs for fine-grained weight updates.
+    //  With 4 workers + GPU inference, each iteration takes
+    //  roughly 3–5 min (100 games × 1600 sims).  That gives
+    //  us ~150–200 iterations in 12 hours.
+    //
+    //  Phase 1: Warm-up — standard sims, build buffer
+    //  Phase 2: Deep search — boost sims, fewer episodes
+    //           to squeeze more quality per game
     // ════════════════════════════════════════════════════════
     cfg.phases = {
-
-        // ── Phase 1: Bootstrap ──────────────────────────────────
         {
             /*name*/              "p1",
             /*iterations*/        200,
@@ -149,10 +125,9 @@ static azb::TrainConfig make_5x5_config() {
             /*temp_exploit*/      0.10f,
             /*capture_boost*/     0.0f
         },
-        // ── Phase 2: Refinement ─────────────────────────────────
         {
             /*name*/              "p2",
-            /*iterations*/        400,
+            /*iterations*/        250,
             /*mcts_sims*/         3200,
             /*episodes_per_iter*/ 200,
             /*epochs*/            4,
@@ -162,37 +137,6 @@ static azb::TrainConfig make_5x5_config() {
             /*temp_exploit*/      0.10f,
             /*capture_boost*/     0.0f
         },
-        // ── Phase 3: Deep Search ────────────────────────────────
-        {
-            /*name*/              "p3",
-            /*iterations*/        200,
-            /*mcts_sims*/         5000,
-            /*episodes_per_iter*/ 200,
-            /*epochs*/            4,
-            /*lr*/                0.0003f,
-            /*temp_threshold*/    12,
-            /*temp_explore*/      0.6f,
-            /*temp_exploit*/      0.10f,
-            /*capture_boost*/     0.0f
-        },
-        // ── Phase 4: Policy Refinement ──────────────────────────
-        //  Drops sims back to 3200 to force MCTS to depend on the
-        //  prior, giving the policy head stronger gradients.  Combined
-        //  with entropy regularisation, sharper targets (τ=0.05), and
-        //  reduced policy_loss_weight this should break the plateau.
-        {
-            /*name*/              "p4",
-            /*iterations*/        400,
-            /*mcts_sims*/         3200,
-            /*episodes_per_iter*/ 200,
-            /*epochs*/            6,
-            /*lr*/                0.0001f,
-            /*temp_threshold*/    12,
-            /*temp_explore*/      0.6f,
-            /*temp_exploit*/      0.10f,
-            /*capture_boost*/     0.0f
-        },
-
     };
 
     return cfg;

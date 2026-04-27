@@ -57,16 +57,17 @@
                 <!-- PatchNet architecture info (shown when PatchNet is selected) -->
                 <div class="arch-info-panel hidden" id="arch-info-1">
                     <div class="arch-info-header">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                            <path d="M2 17l10 5 10-5"/>
-                            <path d="M2 12l10 5 10-5"/>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                            <path d="M2 17l10 5 10-5" />
+                            <path d="M2 12l10 5 10-5" />
                         </svg>
                         Hierarchical PatchNet Architecture
                     </div>
                     <div class="arch-info-body">
-                        Uses <strong>frozen pre-trained local models</strong> (e.g. 3×3) to extract tactical features 
-                        from overlapping board patches, then a <strong>trainable global aggregator</strong> 
+                        Uses <strong>frozen pre-trained local models</strong> (e.g. 3×3) to extract tactical features
+                        from overlapping board patches, then a <strong>trainable global aggregator</strong>
                         fuses these signals for strategic play. Reduces compute by ~60%.
                     </div>
                     <div class="arch-info-diagram">
@@ -75,7 +76,8 @@
                             <div class="arch-arrow">→</div>
                             <div class="arch-node local">Local NN<span class="arch-tag frozen">FROZEN</span></div>
                             <div class="arch-arrow">→</div>
-                            <div class="arch-node global">Global Aggregator<span class="arch-tag train">TRAINABLE</span></div>
+                            <div class="arch-node global">Global Aggregator<span class="arch-tag train">TRAINABLE</span>
+                            </div>
                             <div class="arch-arrow">→</div>
                             <div class="arch-node output">Policy + Value</div>
                         </div>
@@ -177,21 +179,30 @@
                 <div class="setup-card-title">
                     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="3"></circle>
-                        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"></path>
+                        <path
+                            d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z">
+                        </path>
                     </svg>
                     AI Parameters
                 </div>
                 <div style="display: flex; gap: 15px; margin-top: 10px;">
                     <div style="flex: 1;">
-                        <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">Depth (MinMax / AlphaBeta)</label>
-                        <input type="number" id="ai-depth" class="size-input" style="width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--bg-hover); color: var(--text-primary); margin-top: 6px; font-family: 'Inter', sans-serif;" placeholder="Default">
+                        <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">Depth (MinMax /
+                            AlphaBeta)</label>
+                        <input type="number" id="ai-depth" class="size-input"
+                            style="width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--bg-hover); color: var(--text-primary); margin-top: 6px; font-family: 'Inter', sans-serif;"
+                            placeholder="Default">
                     </div>
                     <div style="flex: 1;">
-                        <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">Simulations (MCTS / AlphaZero)</label>
-                        <input type="number" id="ai-sims" class="size-input" style="width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--bg-hover); color: var(--text-primary); margin-top: 6px; font-family: 'Inter', sans-serif;" placeholder="Default">
+                        <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">Simulations (MCTS
+                            / AlphaZero)</label>
+                        <input type="number" id="ai-sims" class="size-input"
+                            style="width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--bg-hover); color: var(--text-primary); margin-top: 6px; font-family: 'Inter', sans-serif;"
+                            placeholder="Default">
                     </div>
                 </div>
-                <label style="display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">
+                <label
+                    style="display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">
                     <input type="checkbox" id="ai-dag" checked
                         style="width: 16px; height: 16px; accent-color: var(--accent);">
                     Use DAG transpositions (AlphaZero C++)
@@ -209,9 +220,12 @@
                     </svg>
                     Game Archive
                 </div>
-                <div style="max-height: 200px; overflow-y: auto; margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-hover);">
-                    <table style="width: 100%; text-align: left; font-size: 0.85rem; border-collapse: collapse;" id="archive-table">
-                        <thead style="background: var(--bg-card); position: sticky; top: 0; box-shadow: 0 1px 0 var(--border);">
+                <div
+                    style="max-height: 200px; overflow-y: auto; margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-hover);">
+                    <table style="width: 100%; text-align: left; font-size: 0.85rem; border-collapse: collapse;"
+                        id="archive-table">
+                        <thead
+                            style="background: var(--bg-card); position: sticky; top: 0; box-shadow: 0 1px 0 var(--border);">
                             <tr>
                                 <th style="padding: 10px; font-weight: 600; color: var(--text-muted);">Date</th>
                                 <th style="padding: 10px; font-weight: 600; color: var(--text-muted);">Size</th>
@@ -221,7 +235,10 @@
                             </tr>
                         </thead>
                         <tbody id="archive-body">
-                            <tr><td colspan="5" style="padding: 10px; text-align: center; color: var(--text-muted);">No games played yet.</td></tr>
+                            <tr>
+                                <td colspan="5" style="padding: 10px; text-align: center; color: var(--text-muted);">No
+                                    games played yet.</td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>

@@ -23,6 +23,7 @@
 #include <torch/torch.h>
 #include "AlphaZeroBitAgent.h"
 #include "AlphaZeroBitNet.h"
+#include "AlphaZeroCNNNet.h"
 #include "BitBoardEnv.h"
 #include "PatchNet.h"
 
@@ -123,6 +124,8 @@ int main(int argc, char* argv[]) {
     float c_puct = 1.6f;
     azb::ValueEval value_eval = azb::ValueEval::kScoreDiffScaled;
     bool use_patch_net = false;
+    bool use_cnn_net = false;
+    int cnn_channels = 128;
     int patch_rows = 3, patch_cols = 3;
     int local_hidden = 128, local_blocks = 6;
     int global_hidden = 192, global_blocks = 4;
@@ -142,6 +145,10 @@ int main(int argc, char* argv[]) {
             use_patch_net = true;
             continue;
         }
+        if (arg == "--cnn") {
+            use_cnn_net = true;
+            continue;
+        }
         if (i + 1 >= argc) break;
         std::string val = argv[++i];
         if      (arg == "--rows")    rows = std::stoi(val);
@@ -159,6 +166,7 @@ int main(int argc, char* argv[]) {
         else if (arg == "--global-hidden") global_hidden = std::stoi(val);
         else if (arg == "--global-blocks") global_blocks = std::stoi(val);
         else if (arg == "--local-model")   local_model_path = val;
+        else if (arg == "--cnn-channels")   cnn_channels = std::stoi(val);
         else if (arg == "--value-eval") {
             if (!azb::parse_value_eval(val, value_eval)) {
                 std::cerr << "[server] Unknown value eval: " << val << std::endl;
@@ -266,6 +274,25 @@ int main(int argc, char* argv[]) {
         }
 
         azb::ServerNNPolicyT<azb::PatchNet> nn_policy(model, device);
+        azb::AlphaZeroBitAgent agent(env, nn_policy, mcts_sims,
+                                     c_puct, 0.3f, 0.25f, 0.20f,
+                                     false, use_dag, value_eval);
+        run_loop(agent);
+    } else if (use_cnn_net) {
+        azb::AlphaZeroCNNNet model(rows, cols, cnn_channels, blocks);
+        try {
+            torch::load(model, model_path);
+            model->to(device);
+            model->eval();
+            std::cerr << "[server] Loaded CNN model: " << model_path << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "[server] WARNING: " << e.what()
+                      << " — using random weights." << std::endl;
+            model->to(device);
+            model->eval();
+        }
+
+        azb::ServerNNPolicyT<azb::AlphaZeroCNNNet> nn_policy(model, device);
         azb::AlphaZeroBitAgent agent(env, nn_policy, mcts_sims,
                                      c_puct, 0.3f, 0.25f, 0.20f,
                                      false, use_dag, value_eval);

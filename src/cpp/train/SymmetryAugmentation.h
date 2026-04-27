@@ -221,7 +221,7 @@ inline std::vector<SymmetryTransform> build_transforms(const BoardGeometry& geo)
         transforms.push_back(std::move(t));
     }
 
-    // ── 6. Transpose (main diagonal) ────────────────────────────────
+    // ── 6. Transpose (p1 diagonal) ────────────────────────────────
     //   dot (r,c) → (c, r)
     //   h-edge (r,c) → v-edge (c, r)
     //   v-edge (r,c) → h-edge (c, r)
@@ -275,7 +275,8 @@ inline TrainSample apply_symmetry(
         const StateSnapshot& snapshot,
         const std::unordered_map<uint32_t, int>& visits,
         int total_visits,
-        float z) {
+        float z,
+        float policy_target_temp = 1.0f) {
 
     const int n_h = geo.n_h_edges;
     const int n_v = geo.n_v_edges;
@@ -323,6 +324,9 @@ inline TrainSample apply_symmetry(
     auto p_acc  = policy.accessor<float, 1>();
     auto m_acc  = mask.accessor<float, 1>();
 
+    const float inv_temp = 1.0f / std::max(policy_target_temp, 0.01f);
+    const bool sharpen = std::abs(inv_temp - 1.0f) > 1e-6f;
+
     for (const auto& [idx, v] : visits) {
         int new_idx;
         if (xform.kind == TransformKind::kReflection) {
@@ -339,8 +343,37 @@ inline TrainSample apply_symmetry(
                 new_idx = static_cast<int>(xform.v_map[idx - n_h]);
             }
         }
-        p_acc[new_idx] += static_cast<float>(v) / total_visits;
+        if (!sharpen) {
+            p_acc[new_idx] += static_cast<float>(v) / total_visits;
+        } else {
+            // Store raw visit count; we'll sharpen below in log-space
+            p_acc[new_idx] += static_cast<float>(v);
+        }
         m_acc[new_idx]  = 1.0f;
+    }
+
+    // Re-normalize (with optional log-space sharpening to avoid overflow)
+    if (sharpen) {
+        // Log-space sharpening: v^inv_temp = exp(inv_temp * log(v))
+        // Subtract max before exp for numerical stability (log-sum-exp trick).
+        float max_log = -std::numeric_limits<float>::infinity();
+        for (int i = 0; i < geo.action_size; i++) {
+            if (p_acc[i] > 0.0f) {
+                float lv = inv_temp * std::log(p_acc[i]);
+                p_acc[i] = lv;
+                if (lv > max_log) max_log = lv;
+            }
+        }
+        float psum = 0.0f;
+        for (int i = 0; i < geo.action_size; i++) {
+            if (m_acc[i] > 0.0f) {
+                p_acc[i] = std::exp(p_acc[i] - max_log);
+                psum += p_acc[i];
+            }
+        }
+        if (psum > 0.0f) {
+            for (int i = 0; i < geo.action_size; i++) p_acc[i] /= psum;
+        }
     }
 
     auto state_tensor = AlphaZeroBitNetImpl::preprocess(out, geo.rows, geo.cols);
@@ -356,12 +389,14 @@ inline void augment_position(
         const std::unordered_map<uint32_t, int>& visits,
         int total_visits,
         float z,
-        std::vector<TrainSample>& out_samples) {
+        std::vector<TrainSample>& out_samples,
+        float policy_target_temp = 1.0f) {
 
     if (total_visits <= 0) return;
     for (const auto& xform : transforms) {
         out_samples.push_back(
-            apply_symmetry(xform, geo, snapshot, visits, total_visits, z));
+            apply_symmetry(xform, geo, snapshot, visits, total_visits, z,
+                           policy_target_temp));
     }
 }
 

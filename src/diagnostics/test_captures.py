@@ -174,7 +174,7 @@ def test_multiple_captures(rows=5, cols=5):
             print(f"  AlphaZero (sims={sims:4d}): ERROR - {e}")
 
 
-if __name__ == '__main__':
+if __name__ == '__p1__':
     test_obvious_capture(5, 5)
     test_multiple_captures(5, 5)
     

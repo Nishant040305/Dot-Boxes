@@ -173,10 +173,10 @@ function getModifiedSpec(spec) {
     const sims = document.getElementById('ai-sims').value;
     const dagToggle = document.getElementById('ai-dag');
     const useDag = dagToggle ? dagToggle.checked : true;
-    
+
     let [type, params] = spec.split(':');
     if (!params) params = '';
-    
+
     let paramMap = {};
     if (params) {
         params.split(',').forEach(p => {
@@ -186,7 +186,7 @@ function getModifiedSpec(spec) {
             }
         });
     }
-    
+
     if (depth && (type === 'minmax' || type === 'alphabeta')) {
         paramMap['depth'] = depth;
     }
@@ -197,7 +197,7 @@ function getModifiedSpec(spec) {
     if (type === 'alphazero_cpp' || type === 'alphazero_patch') {
         paramMap['dag'] = useDag;
     }
-    
+
     let newParams = Object.keys(paramMap).map(k => `${k}=${paramMap[k]}`).join(',');
     return newParams ? `${type}:${newParams}` : type;
 }

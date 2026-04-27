@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <algorithm>
 #include <iostream>
 #include <random>
 #include <vector>
@@ -12,6 +13,7 @@
 #include <torch/torch.h>
 #include "AlphaZeroBitAgent.h"
 #include "BitBoardEnv.h"
+#include "AlphaZeroCNNNet.h"
 #include "InferenceServer.h"
 #include "ModelHandle.h"
 #include "ReplayBuffer.h"
@@ -100,6 +102,7 @@ public:
             for (const auto& item : game_history) {
                 // Feature tensor — use the right preprocessing based on model type.
                 // For standard model: AlphaZeroBitNetImpl::preprocess
+                // For CNN model: AlphaZeroCNNNetImpl::preprocess (spatial 2D)
                 // For PatchNet: PatchNetImpl::preprocess (includes patch features)
                 torch::Tensor state_tensor;
                 if (cfg_.use_patch_net) {
@@ -107,6 +110,9 @@ public:
                         item.snapshot, cfg_.rows, cfg_.cols,
                         cfg_.patch_rows, cfg_.patch_cols,
                         precomputed_patches());
+                } else if (cfg_.use_cnn_net) {
+                    state_tensor = AlphaZeroCNNNetImpl::preprocess(
+                        item.snapshot, cfg_.rows, cfg_.cols);
                 } else {
                     state_tensor = AlphaZeroBitNetImpl::preprocess(
                         item.snapshot, cfg_.rows, cfg_.cols);
@@ -138,9 +144,39 @@ public:
                 int total_visits = 0;
                 for (const auto& [idx, v] : item.visits) total_visits += v;
                 if (total_visits > 0) {
-                    for (const auto& [idx, v] : item.visits) {
-                        pacc[idx] = static_cast<float>(v) / total_visits;
-                        // legal_mask already set from env_tmp; leave as-is.
+                    const float inv_temp = 1.0f / std::max(cfg_.policy_target_temp, 0.01f);
+                    if (std::abs(inv_temp - 1.0f) < 1e-6f) {
+                        // No sharpening — fast path
+                        for (const auto& [idx, v] : item.visits) {
+                            pacc[idx] = static_cast<float>(v) / total_visits;
+                        }
+                    } else {
+                        // Sharpen: raise counts to power 1/τ, then re-normalize.
+                        // Use log-space arithmetic to avoid float overflow when
+                        // inv_temp is large (e.g. τ=0.05 → inv_temp=20):
+                        //   sharp(v) = v^inv_temp = exp(inv_temp * log(v))
+                        // Subtract max before exp for numerical stability (log-sum-exp trick).
+                        std::vector<std::pair<int, float>> log_vals;
+                        log_vals.reserve(item.visits.size());
+                        float max_log = -std::numeric_limits<float>::infinity();
+                        for (const auto& [idx, v] : item.visits) {
+                            if (v > 0) {
+                                float lv = inv_temp * std::log(static_cast<float>(v));
+                                log_vals.push_back({idx, lv});
+                                if (lv > max_log) max_log = lv;
+                            }
+                        }
+                        float sharp_sum = 0.0f;
+                        for (const auto& [idx, lv] : log_vals) {
+                            float s = std::exp(lv - max_log);
+                            pacc[idx] = s;
+                            sharp_sum += s;
+                        }
+                        if (sharp_sum > 0.0f) {
+                            for (const auto& [idx, lv] : log_vals) {
+                                pacc[idx] /= sharp_sum;
+                            }
+                        }
                     }
                 } else if (n_legal > 0) {
                     const float uniform = 1.0f / static_cast<float>(n_legal);
@@ -166,9 +202,29 @@ public:
                 // ordering in the global portion of the feature vector.
                 // We disable augmentation for PatchNet for now since
                 // patch features would need separate permutation tables.
-                if (cfg_.use_augmentation && !cfg_.use_patch_net) {
+                if (cfg_.use_augmentation && !cfg_.use_patch_net && !cfg_.use_cnn_net) {
                     augment_position(sym_transforms_, geo_, item.snapshot,
-                                     item.visits, total_visits, z, samples);
+                                     item.visits, total_visits, z, samples,
+                                     cfg_.policy_target_temp);
+                }
+            }
+
+            // ── NaN validation: drop any contaminated samples ─────
+            {
+                size_t before = samples.size();
+                samples.erase(
+                    std::remove_if(samples.begin(), samples.end(),
+                        [](const TrainSample& s) {
+                            return s.policy.isnan().any().item<bool>() ||
+                                   s.state.isnan().any().item<bool>() ||
+                                   std::isnan(s.value) || std::isinf(s.value);
+                        }),
+                    samples.end());
+                if (samples.size() < before) {
+                    std::cerr << "[Worker " << worker_id_
+                              << "] WARNING: dropped " << (before - samples.size())
+                              << "/" << before << " NaN-contaminated samples"
+                              << std::endl;
                 }
             }
 

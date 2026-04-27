@@ -16,3 +16,4 @@ _*/
 scripts/
 training_logs/
 _*
+!_*.cpp

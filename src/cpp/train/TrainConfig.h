@@ -32,6 +32,10 @@ struct TrainConfig {
     int num_res_blocks    = 6;
     double dropout        = 0.1;
 
+    // ── CNN (convolutional) ──
+    bool use_cnn_net          = false;
+    int cnn_channels          = 128;
+
     // ── PatchNet (hierarchical local→global) ──
     bool use_patch_net       = false;
     int patch_rows           = 3;   // local patch board rows
@@ -59,6 +63,13 @@ struct TrainConfig {
     int num_iters         = 10;
     bool resume           = false;
 
+    // Loss weighting & gradient clipping
+    float value_loss_weight  = 1.0f;   // coefficient for MSE value loss
+    float policy_loss_weight = 1.0f;   // coefficient for cross-entropy policy loss
+    float entropy_coeff      = 0.0f;   // entropy regularization (subtracted from loss to
+                                       // encourage confident policy predictions; 0 = off)
+    float grad_clip_norm     = 1.0f;   // max L2 norm for gradient clipping
+
     // Model history
     int keep_checkpoints  = 0;      // Keep last N checkpoints
     std::vector<std::string> model_history;
@@ -74,6 +85,12 @@ struct TrainConfig {
     int temp_threshold    = 10;   // moves < this use temp=1, else temp=0
     float temp_explore    = 1.0f;
     float temp_exploit    = 0.3f;
+
+    // Policy target sharpening: exponentiate MCTS visit counts by 1/τ
+    // before normalizing. τ < 1.0 sharpens the distribution, giving
+    // the policy head a stronger gradient signal on large boards where
+    // visit counts spread too uniformly.  τ = 1.0 means no sharpening.
+    float policy_target_temp = 1.0f;
 
     // Value target evaluation
     ValueEval value_eval  = ValueEval::kScoreDiffScaled;

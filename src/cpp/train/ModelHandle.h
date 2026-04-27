@@ -9,6 +9,7 @@
 #include <string>
 #include <torch/torch.h>
 #include "AlphaZeroBitNet.h"
+#include "AlphaZeroCNNNet.h"
 #include "PatchNet.h"
 #include "TrainConfig.h"
 
@@ -137,6 +138,47 @@ inline ModelHandle make_patch_model(int big_rows, int big_cols,
             copy->freeze_local();
         };
         ch.clone_fn   = nullptr;
+        return ch;
+    };
+    return h;
+}
+
+// ─── Factory: CNN (convolutional) ───────────────────────────────────────
+
+inline ModelHandle make_cnn_model(int rows, int cols,
+                                  int cnn_channels, int blocks, double dropout) {
+    AlphaZeroCNNNet net(rows, cols, cnn_channels, blocks, dropout);
+    ModelHandle h;
+    h.module     = net.ptr();
+    h.preprocess = [net](const StateSnapshot& s) mutable { return net->preprocess(s); };
+    h.forward    = [net](torch::Tensor x) mutable { return net->forward(x); };
+    h.save       = [net](const std::string& p) { torch::save(net, p); };
+    h.load       = [net](const std::string& p) mutable {
+        torch::load(net, p);
+    };
+    h.clone_fn   = [net](const TrainConfig& cfg) -> ModelHandle {
+        AlphaZeroCNNNet copy(cfg.rows, cfg.cols, cfg.cnn_channels,
+                              cfg.num_res_blocks, cfg.dropout);
+        {
+            torch::NoGradGuard no_grad;
+            auto src_params = net->named_parameters();
+            for (auto& p : copy->named_parameters()) {
+                auto* found = src_params.find(p.key());
+                if (found) p.value().copy_(*found);
+            }
+            auto src_bufs = net->named_buffers();
+            for (auto& b : copy->named_buffers()) {
+                auto* found = src_bufs.find(b.key());
+                if (found) b.value().copy_(*found);
+            }
+        }
+        ModelHandle ch;
+        ch.module     = copy.ptr();
+        ch.preprocess = [copy](const StateSnapshot& s) mutable { return copy->preprocess(s); };
+        ch.forward    = [copy](torch::Tensor x) mutable { return copy->forward(x); };
+        ch.save       = [copy](const std::string& p) { torch::save(copy, p); };
+        ch.load       = [copy](const std::string& p) mutable { torch::load(copy, p); };
+        ch.clone_fn   = nullptr;  // inference copies don't need to clone
         return ch;
     };
     return h;

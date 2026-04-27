@@ -24,6 +24,13 @@ AlphaZeroTrainer::AlphaZeroTrainer(const TrainConfig& cfg)
                   << cfg.patch_rows << "x" << cfg.patch_cols
                   << " patches on " << cfg.rows << "x" << cfg.cols
                   << " board)" << std::endl;
+    } else if (cfg_.use_cnn_net) {
+        model_ = make_cnn_model(
+            cfg.rows, cfg.cols,
+            cfg.cnn_channels, cfg.num_res_blocks, cfg.dropout);
+        std::cout << "[Trainer] Using AlphaZeroCNNNet ("
+                  << cfg.cnn_channels << " channels, "
+                  << cfg.num_res_blocks << " blocks)" << std::endl;
     } else {
         model_ = make_standard_model(
             cfg.rows, cfg.cols,
@@ -95,7 +102,8 @@ void AlphaZeroTrainer::train() {
              << ",\"hidden_size\":" << cfg_.hidden_size
              << ",\"num_res_blocks\":" << cfg_.num_res_blocks
              << ",\"value_eval\":\"" << azb::value_eval_name(cfg_.value_eval) << "\""
-             << ",\"use_patch_net\":" << (cfg_.use_patch_net ? "true" : "false");
+             << ",\"use_patch_net\":" << (cfg_.use_patch_net ? "true" : "false")
+             << ",\"use_cnn_net\":" << (cfg_.use_cnn_net ? "true" : "false");
         if (cfg_.use_patch_net) {
             info << ",\"patch_rows\":" << cfg_.patch_rows
                  << ",\"patch_cols\":" << cfg_.patch_cols
@@ -104,6 +112,9 @@ void AlphaZeroTrainer::train() {
                  << ",\"global_hidden_size\":" << cfg_.global_hidden_size
                  << ",\"global_num_res_blocks\":" << cfg_.global_num_res_blocks
                  << ",\"local_model_path\":\"" << cfg_.local_model_path << "\"";
+        }
+        if (cfg_.use_cnn_net) {
+            info << ",\"cnn_channels\":" << cfg_.cnn_channels;
         }
         info << "}\n";
     }
@@ -288,7 +299,7 @@ void AlphaZeroTrainer::train() {
             std::string iter_path = cfg_.model_dir + "/checkpoint_iter" + std::to_string(iter + 1) + ".pt";
             model_.save(iter_path);
             
-            // Overwrite latest main model
+            // Overwrite latest p1 model
             model_.save(model_path());
             
             // Register in history
@@ -392,11 +403,34 @@ AlphaZeroTrainer::TrainLossStats AlphaZeroTrainer::train_epoch(torch::optim::Ada
         auto log_probs = torch::log_softmax(masked_logits, /*dim=*/1);
         auto p_loss = -(policies_t * log_probs).sum() / static_cast<float>(cfg_.batch_size);
 
-        auto loss = 1.5f * v_loss + p_loss;
+        // Entropy regularization: encourage confident (non-uniform) policy outputs.
+        // H(π) = -Σ π(a) log π(a);  subtracting H from loss penalizes high entropy.
+        auto loss = cfg_.value_loss_weight * v_loss + cfg_.policy_loss_weight * p_loss;
+        if (cfg_.entropy_coeff > 0.0f) {
+            auto probs = torch::softmax(masked_logits, /*dim=*/1);
+            // nan_to_num: masked moves have softmax=0 and log_softmax=-inf,
+            // giving 0*(-inf)=NaN.  Replace those NaNs with 0 before summing.
+            auto entropy = -torch::nan_to_num(probs * log_probs, /*nan=*/0.0).sum()
+                           / static_cast<float>(cfg_.batch_size);
+            loss = loss - cfg_.entropy_coeff * entropy;
+        }
+
+        // ── NaN guard: skip this batch if loss is NaN/Inf ────────
+        {
+            float loss_val = loss.item<float>();
+            if (std::isnan(loss_val) || std::isinf(loss_val)) {
+                std::cerr << "[Trainer] WARNING: NaN/Inf loss detected in batch "
+                          << b << " (loss=" << loss_val
+                          << ", v=" << v_loss.item<float>()
+                          << ", p=" << p_loss.item<float>()
+                          << "). Skipping batch." << std::endl;
+                continue;
+            }
+        }
 
         optimizer.zero_grad();
         loss.backward();
-        torch::nn::utils::clip_grad_norm_(model_.parameters(), 1.0f);
+        torch::nn::utils::clip_grad_norm_(model_.parameters(), cfg_.grad_clip_norm);
         optimizer.step();
 
         total_loss += loss.item<float>();

@@ -139,7 +139,7 @@ public:
         return true;
     }
 
-    /// Resize the buffer while maintaining existing samples (if possible).
+    /// Resize the buffer while p1taining existing samples (if possible).
     void set_capacity(int new_capacity) {
         std::lock_guard<std::mutex> lock(mu_);
         if (new_capacity == capacity_) return;

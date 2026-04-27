@@ -18,6 +18,7 @@
 ///   --model-dir PATH  Model save directory (default: ../models)
 ///   --config NAME     Load predefined config (2x2, 3x3, 4x3, 5x5, 5x5_patch, 7x8)
 
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -29,6 +30,8 @@
 #include "training_config/_4x3.cpp"
 #include "training_config/_5x5.cpp"
 #include "training_config/_5x5_patch.cpp"
+#include "training_config/_5x5_cnn.cpp"
+#include "training_config/_5x5_cnn_kaggle.cpp"
 #include "training_config/_7x8.cpp"
 #include "training_config/_7x8_patch.cpp"
 #include "training_config/_3x3.cpp"
@@ -50,7 +53,7 @@ static void print_help() {
               << "  --hidden N        Hidden size (default: 256)\n"
               << "  --blocks N        Residual blocks (default: 6)\n"
                << "  --model-dir PATH  Model directory (default: ../models)\n"
-               << "  --config NAME     Load predefined config (2x2, 3x3, 4x3, 5x5, 5x5_patch, 7x8, 7x8_patch)\n"
+               << "  --config NAME     Load predefined config (2x2, 3x3, 4x3, 5x5, 5x5_patch, 5x5_cnn, 5x5_cnn_kaggle, 7x8, 7x8_patch)\n"
                << "  --value-eval V    Value target eval (winloss, score, score_sqrt, score_tanh)\n"
                << "  --dag            Enable DAG transpositions (default: on)\n"
                << "  --no-dag         Disable DAG (use tree only)\n"
@@ -65,10 +68,21 @@ static void print_help() {
               << "  --local-hidden N  Local model hidden size (default: 128)\n"
               << "  --local-blocks N  Local model residual blocks (default: 6)\n"
               << "  --global-hidden N Global aggregator hidden size (default: 192)\n"
-              << "  --global-blocks N Global aggregator residual blocks (default: 4)\n";
+              << "  --global-blocks N Global aggregator residual blocks (default: 4)\n"
+              << "\nCNN options:\n"
+              << "  --cnn             Enable CNN mode\n"
+              << "  --cnn-channels N  CNN channel count (default: 128)\n";
 }
 
 int main(int argc, char* argv[]) {
+    // ── Force stdout to flush immediately ──
+    // Kaggle notebooks run without a TTY, so stdout is fully buffered by
+    // default (~4-8 KB).  Disable buffering at both the C and C++ layers
+    // so every line appears in the Kaggle log as it is written.
+    std::setvbuf(stdout, nullptr, _IONBF, 0);   // C-level (LibTorch internals)
+    std::cout << std::unitbuf;                    // C++ iostream
+    std::cerr << std::unitbuf;                    // stderr too, just in case
+
     // LibTorch internal threads for matrix ops in inference.
     // Tuned for i7-13700H: 4 intra-op threads for DNNL/OpenMP matrix ops,
     // leaving remaining cores for the 16 MCTS self-play workers.
@@ -105,6 +119,10 @@ int main(int argc, char* argv[]) {
             cfg.use_patch_net = true;
             continue;
         }
+        if (arg == "--cnn") {
+            cfg.use_cnn_net = true;
+            continue;
+        }
         if (i + 1 >= argc) {
             std::cerr << "Missing value for " << arg << std::endl;
             return 1;
@@ -118,6 +136,8 @@ int main(int argc, char* argv[]) {
             if (val == "4x3") loaded = make_4x3_config();
             else if (val == "5x5") loaded = make_5x5_config();
             else if (val == "5x5_patch") loaded = make_5x5_patch_config();
+            else if (val == "5x5_cnn") loaded = make_5x5_cnn_config();
+            else if (val == "5x5_cnn_kaggle") loaded = make_5x5_cnn_kaggle_config();
             else if (val == "7x8") loaded = make_7x8_config();
             else if (val == "7x8_patch") loaded = make_7x8_patch_config();
             else if (val == "3x3") loaded = make_3x3_config();
@@ -161,6 +181,8 @@ int main(int argc, char* argv[]) {
         else if (arg == "--local-blocks")  cfg.local_num_res_blocks = std::stoi(val);
         else if (arg == "--global-hidden") cfg.global_hidden_size = std::stoi(val);
         else if (arg == "--global-blocks") cfg.global_num_res_blocks = std::stoi(val);
+        // CNN-specific flags
+        else if (arg == "--cnn-channels")   cfg.cnn_channels = std::stoi(val);
         else {
             std::cerr << "Unknown option: " << arg << std::endl;
             return 1;
@@ -183,6 +205,10 @@ int main(int argc, char* argv[]) {
                   << cfg.local_num_res_blocks << " blocks, FROZEN)" << std::endl;
         std::cout << "Global aggregator: " << cfg.global_hidden_size << "h, "
                   << cfg.global_num_res_blocks << " blocks" << std::endl;
+    } else if (cfg.use_cnn_net) {
+        std::cout << "Mode: CNN" << std::endl;
+        std::cout << "Model: channels=" << cfg.cnn_channels
+                  << ", blocks=" << cfg.num_res_blocks << std::endl;
     } else {
         if (phased) {
             std::cout << "Mode: Phased Training (Bootstrap -> Refinement -> Mastery)" << std::endl;
