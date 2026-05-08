@@ -154,6 +154,36 @@ def make_agent(agent_type, env, **kwargs):
             use_dag=use_dag,
         )
 
+    elif agent_type == 'alphazero_cnn':
+        from agents.AlphaZeroCppAgent import AlphaZeroCppAgent
+        n_sims = kwargs.get('n_simulations', 400)
+        model_path = kwargs.get('model_path', None)
+        if model_path is None:
+            cnn_filename = f"alphazero_{rows}x{cols}.pt"
+            cnn_candidates = [
+                os.path.join(_src_dir, 'cpp', 'models', f"_{rows}x{cols}_cnn", cnn_filename),
+                os.path.join(_src_dir, '..', 'models', f"_{rows}x{cols}_cnn", cnn_filename),
+            ]
+            for p in cnn_candidates:
+                p = os.path.abspath(p)
+                if os.path.exists(p):
+                    model_path = p
+                    break
+            if model_path is None:
+                model_path = _find_model_path(cnn_filename)
+                print(f"[arena] CNN model not found, falling back to: {model_path}")
+        
+        if 'no_dag' in kwargs:
+            use_dag = not bool(kwargs.get('no_dag'))
+        else:
+            use_dag = kwargs.get('use_dag', kwargs.get('dag', True))
+        return AlphaZeroCppAgent(
+            env,
+            model_path=model_path,
+            n_simulations=n_sims,
+            use_dag=use_dag,
+        )
+
     elif agent_type == 'alphazero_patch':
         from agents.AlphaZeroCppAgent import AlphaZeroCppAgent
         n_sims = kwargs.get('n_simulations', 600)

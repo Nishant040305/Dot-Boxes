@@ -3,7 +3,8 @@
 // ──────────────────────────────────────────────
 let socket = null;
 let agents = [];
-let selectedAgent = null;
+let selectedAgent1 = null;
+let selectedAgent2 = null;
 let selectedSize = 3;
 let selectedPlayer = 1;
 let gameActive = false;
@@ -53,7 +54,53 @@ function connectSocket() {
 }
 
 // ──────────────────────────────────────────────
+//  ARCH INFO PANEL HELPERS
+// ──────────────────────────────────────────────
+
+/**
+ * Show/hide the architecture info panels for a given grid slot (1 or 2).
+ * Panels: arch-info-{slot} (PatchNet), arch-info-cnn-{slot} (CNN)
+ */
+function updateArchPanel(agent, slot) {
+    const patchPanel = document.getElementById(`arch-info-${slot}`);
+    const cnnPanel = document.getElementById(`arch-info-cnn-${slot}`);
+
+    if (patchPanel) patchPanel.classList.add('hidden');
+    if (cnnPanel) cnnPanel.classList.add('hidden');
+
+    if (!agent) return;
+
+    if (agent.model_type === 'patch' && patchPanel) {
+        patchPanel.classList.remove('hidden');
+    } else if (agent.model_type === 'cnn' && cnnPanel) {
+        cnnPanel.classList.remove('hidden');
+    }
+}
+
+// ──────────────────────────────────────────────
 //  SETUP SCREEN
+// ──────────────────────────────────────────────
+function filterAgents(cat, slot) {
+    const gridId = slot === 1 ? 'agent-grid' : 'agent-grid-2';
+    const filterId = slot === 1 ? 'category-filter-1' : 'category-filter-2';
+
+    const grid = document.getElementById(gridId);
+    const filter = document.getElementById(filterId);
+    if (!grid) return;
+
+    // Update active tab
+    if (filter) {
+        filter.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('selected'));
+        const activeBtn = filter.querySelector(`[data-cat="${cat}"]`);
+        if (activeBtn) activeBtn.classList.add('selected');
+    }
+
+    grid.querySelectorAll('.agent-option').forEach(el => {
+        const agentCat = el.dataset.category;
+        el.style.display = (cat === 'all' || agentCat === cat) ? '' : 'none';
+    });
+}
+
 function buildAgentGrid() {
     const grid1 = document.getElementById('agent-grid');
     const grid2 = document.getElementById('agent-grid-2');
@@ -70,21 +117,35 @@ function buildAgentGrid() {
             diffDots += `<div class="${cls}"></div>`;
         }
 
+        // Model-type badge
+        let modelBadge = '';
+        if (agent.model_type === 'cnn') {
+            modelBadge = `<span class="arch-badge cnn-badge">CNN</span>`;
+        } else if (agent.model_type === 'patch') {
+            modelBadge = `<span class="arch-badge patch-badge">PATCH</span>`;
+        }
+
+        // Extra badge (e.g. NEW)
+        let extraBadge = agent.badge ? `<span class="arch-badge new-badge">${agent.badge}</span>` : '';
+
         const contentHTML = `
-                <div class="agent-name">${agent.name}</div>
-                <div class="agent-desc">${agent.description}</div>
-                <div class="agent-difficulty">${diffDots}</div>
-                `;
+            <div class="agent-name">${agent.name}${modelBadge}${extraBadge}</div>
+            <div class="agent-desc">${agent.description}</div>
+            <div class="agent-difficulty">${diffDots}</div>
+        `;
 
         // Player 1 Grid
         const div1 = document.createElement('div');
         div1.className = 'agent-option' + (idx === 1 ? ' selected' : '');
-        if (idx === 1) selectedAgent1 = agent;
+        div1.dataset.category = agent.category || 'basic';
+        div1.dataset.agentIdx = idx;
+        if (idx === 1) { selectedAgent1 = agent; updateArchPanel(agent, 1); }
         div1.innerHTML = contentHTML;
         div1.onclick = () => {
             grid1.querySelectorAll('.agent-option').forEach(e => e.classList.remove('selected'));
             div1.classList.add('selected');
             selectedAgent1 = agent;
+            updateArchPanel(agent, 1);
         };
         grid1.appendChild(div1);
 
@@ -92,12 +153,15 @@ function buildAgentGrid() {
         if (grid2) {
             const div2 = document.createElement('div');
             div2.className = 'agent-option' + (idx === 1 ? ' selected' : '');
-            if (idx === 1) selectedAgent2 = agent;
+            div2.dataset.category = agent.category || 'basic';
+            div2.dataset.agentIdx = idx;
+            if (idx === 1) { selectedAgent2 = agent; updateArchPanel(agent, 2); }
             div2.innerHTML = contentHTML;
             div2.onclick = () => {
                 grid2.querySelectorAll('.agent-option').forEach(e => e.classList.remove('selected'));
                 div2.classList.add('selected');
                 selectedAgent2 = agent;
+                updateArchPanel(agent, 2);
             };
             grid2.appendChild(div2);
         }
@@ -190,11 +254,13 @@ function getModifiedSpec(spec) {
     if (depth && (type === 'minmax' || type === 'alphabeta')) {
         paramMap['depth'] = depth;
     }
-    if (sims && (type === 'mcts' || type === 'alphazero_bit' || type === 'alphazero_cpp' || type === 'alphazero_patch')) {
+    // Include alphazero_cnn in simulation override
+    if (sims && (type === 'mcts' || type === 'alphazero_bit' || type === 'alphazero_cpp' ||
+        type === 'alphazero_patch' || type === 'alphazero_cnn')) {
         paramMap['n_simulations'] = sims;
         if (type === 'mcts') paramMap['iterations'] = sims;
     }
-    if (type === 'alphazero_cpp' || type === 'alphazero_patch') {
+    if (type === 'alphazero_cpp' || type === 'alphazero_patch' || type === 'alphazero_cnn') {
         paramMap['dag'] = useDag;
     }
 

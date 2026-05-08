@@ -80,6 +80,9 @@ AGENTS = [
     {'id': 'alphazero_cpp', 'name': 'AlphaZero (C++)', 'spec': 'alphazero_cpp:n_simulations=400',
      'description': 'Neural MCTS via C++ server — fastest engine', 'difficulty': 8,
      'category': 'neural', 'model_type': 'standard'},
+    {'id': 'alphazero_cnn', 'name': 'AlphaZero CNN (C++)', 'spec': 'alphazero_cnn:n_simulations=400',
+     'description': 'Neural MCTS via C++ server with CNN architecture', 'difficulty': 9,
+     'category': 'neural', 'model_type': 'cnn'},
     {'id': 'alphazero_patch', 'name': 'AlphaZero PatchNet', 'spec': 'alphazero_patch:n_simulations=600',
      'description': 'Hierarchical patch model — frozen local + global aggregator',
      'difficulty': 9, 'category': 'neural', 'model_type': 'patch',
@@ -253,7 +256,7 @@ def on_new_game(data):
             
         if rows != cols:
             env_type = 'classic' # BitBoardEnv only supports square boards right now
-        elif agent_type_str in ('alphazero_cpp', 'alphazero_bit') or (human_player == -1 and a2_type_str in ('alphazero_cpp', 'alphazero_bit')):
+        elif agent_type_str in ('alphazero_cpp', 'alphazero_bit', 'alphazero_cnn', 'alphazero_patch') or (human_player == -1 and a2_type_str in ('alphazero_cpp', 'alphazero_bit', 'alphazero_cnn', 'alphazero_patch')):
             env_type = 'bit'
 
         if env_type == 'bit':

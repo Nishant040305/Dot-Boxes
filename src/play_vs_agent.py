@@ -26,6 +26,7 @@ AGENT_MENU = [
     ("mcts:iterations=500", "MCTS (500 iterations)"),
     ("alphazero_bit:n_simulations=400", "AlphaZero Bit (400 sims)"),
     ("alphazero_cpp:n_simulations=400", "AlphaZero C++ (400 sims)"),
+    ("alphazero_cnn:n_simulations=400", "AlphaZero CNN (400 sims)"),
 ]
 
 

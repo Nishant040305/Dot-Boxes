@@ -11,6 +11,82 @@
         rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
     <link rel="stylesheet" href="style.css">
+    <style>
+        /* ── Architecture badges on agent cards ─────────────────── */
+        .arch-badge {
+            display: inline-block;
+            font-size: 0.6rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            padding: 1px 5px;
+            border-radius: 4px;
+            vertical-align: middle;
+            margin-left: 5px;
+            line-height: 1.6;
+        }
+
+        .cnn-badge {
+            background: rgba(16, 185, 129, 0.18);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.35);
+        }
+
+        .patch-badge {
+            background: rgba(99, 102, 241, 0.18);
+            color: #a5b4fc;
+            border: 1px solid rgba(99, 102, 241, 0.35);
+        }
+
+        .new-badge {
+            background: rgba(245, 158, 11, 0.18);
+            color: #f59e0b;
+            border: 1px solid rgba(245, 158, 11, 0.35);
+        }
+
+        /* ── CNN arch info panel tweaks ─────────────────────────── */
+        #arch-info-cnn-1 .arch-node,
+        #arch-info-cnn-2 .arch-node {
+            font-size: 0.78rem;
+        }
+
+        /* feature pill row inside the CNN panel */
+        .cnn-feature-pills {
+            margin-top: 10px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .cnn-pill {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            background: var(--bg-hover);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 3px 10px;
+        }
+
+        /* ── No-spin inputs ─────────────────────────────────────── */
+        .no-spin::-webkit-inner-spin-button,
+        .no-spin::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            appearance: none;
+            margin: 0;
+        }
+
+        .no-spin {
+            -moz-appearance: textfield;
+            appearance: textfield;
+        }
+
+        .custom-size-box:focus-within {
+            border-color: var(--accent);
+            box-shadow: 0 0 16px rgba(99, 102, 241, 0.1);
+        }
+    </style>
     <script src="script.js" defer></script>
 </head>
 
@@ -38,6 +114,7 @@
                     </svg>
                     <span id="agent1-title">Choose Your Opponent</span>
                 </div>
+
                 <!-- Category filter tabs -->
                 <div class="category-filter" id="category-filter-1">
                     <button class="cat-btn selected" data-cat="all" onclick="filterAgents('all', 1)">All</button>
@@ -51,10 +128,12 @@
                         <span class="cat-dot" style="background:#6366f1;"></span>Neural
                     </button>
                 </div>
+
                 <div class="agent-grid" id="agent-grid">
                     <!-- Populated by JS -->
                 </div>
-                <!-- PatchNet architecture info (shown when PatchNet is selected) -->
+
+                <!-- PatchNet architecture info -->
                 <div class="arch-info-panel hidden" id="arch-info-1">
                     <div class="arch-info-header">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -83,6 +162,79 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- CNN architecture info -->
+                <div class="arch-info-panel hidden" id="arch-info-cnn-1">
+                    <div class="arch-info-header">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <rect x="2" y="3" width="20" height="14" rx="2" />
+                            <path d="M8 21h8M12 17v4" />
+                            <path d="M7 8h2v3H7zM11 8h2v3h-2zM15 8h2v3h-2z" />
+                        </svg>
+                        CNN Residual Architecture
+                    </div>
+                    <div class="arch-info-body">
+                        Uses <strong>2D convolutional residual blocks</strong> over a spatial dot-grid
+                        (<em>rows+1 × cols+1</em>) with <strong>11 input feature channels</strong> — edges,
+                        box ownership, edge-count one-hots, game progress and score difference.
+                        Separate policy and value heads deliver strong positional reasoning.
+                    </div>
+                    <div class="arch-info-diagram">
+                        <div class="arch-flow">
+                            <div class="arch-node patch" style="background:rgba(16,185,129,0.13);border-color:#10b981;">
+                                11-ch<br><small>Input</small>
+                            </div>
+                            <div class="arch-arrow">→</div>
+                            <div class="arch-node local" style="background:rgba(99,102,241,0.13);border-color:#6366f1;">
+                                Conv Tower<span class="arch-tag train" style="background:#6366f1;">ResBlocks</span>
+                            </div>
+                            <div class="arch-arrow">→</div>
+                            <div class="arch-node global"
+                                style="background:rgba(245,158,11,0.13);border-color:#f59e0b;flex-direction:column;gap:3px;">
+                                <span>Policy Head</span>
+                                <span style="font-size:0.68rem;opacity:0.7;">+ Value Head</span>
+                            </div>
+                            <div class="arch-arrow">→</div>
+                            <div class="arch-node output">Action</div>
+                        </div>
+                    </div>
+                    <div class="cnn-feature-pills">
+                        <div class="cnn-pill">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#10b981"
+                                stroke-width="2">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                            </svg>
+                            Spatial edge &amp; box encoding
+                        </div>
+                        <div class="cnn-pill">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6366f1"
+                                stroke-width="2">
+                                <rect x="3" y="3" width="7" height="7" />
+                                <rect x="14" y="3" width="7" height="7" />
+                                <rect x="3" y="14" width="7" height="7" />
+                                <rect x="14" y="14" width="7" height="7" />
+                            </svg>
+                            Pad-1 convolutions preserve board shape
+                        </div>
+                        <div class="cnn-pill">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#f59e0b"
+                                stroke-width="2">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                                <path d="M2 17l10 5 10-5M2 12l10 5 10-5" />
+                            </svg>
+                            BatchNorm + LayerNorm regularisation
+                        </div>
+                        <div class="cnn-pill">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#a78bfa"
+                                stroke-width="2">
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M12 8v4l3 3" />
+                            </svg>
+                            Fastest C++ inference
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Agent 2 Selection (Hidden by default) -->
@@ -94,8 +246,124 @@
                     </svg>
                     <span id="agent2-title">Choose AI Player 2</span>
                 </div>
+                <!-- Category filter tabs for P2 -->
+                <div class="category-filter" id="category-filter-2">
+                    <button class="cat-btn selected" data-cat="all" onclick="filterAgents('all', 2)">All</button>
+                    <button class="cat-btn" data-cat="basic" onclick="filterAgents('basic', 2)">
+                        <span class="cat-dot" style="background:#10b981;"></span>Basic
+                    </button>
+                    <button class="cat-btn" data-cat="search" onclick="filterAgents('search', 2)">
+                        <span class="cat-dot" style="background:#f59e0b;"></span>Search
+                    </button>
+                    <button class="cat-btn" data-cat="neural" onclick="filterAgents('neural', 2)">
+                        <span class="cat-dot" style="background:#6366f1;"></span>Neural
+                    </button>
+                </div>
                 <div class="agent-grid" id="agent-grid-2">
                     <!-- Populated by JS -->
+                </div>
+
+                <!-- PatchNet panel for P2 -->
+                <div class="arch-info-panel hidden" id="arch-info-2">
+                    <div class="arch-info-header">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                            <path d="M2 17l10 5 10-5" />
+                            <path d="M2 12l10 5 10-5" />
+                        </svg>
+                        Hierarchical PatchNet Architecture
+                    </div>
+                    <div class="arch-info-body">
+                        Uses <strong>frozen pre-trained local models</strong> (e.g. 3×3) to extract tactical features
+                        from overlapping board patches, then a <strong>trainable global aggregator</strong>
+                        fuses these signals for strategic play. Reduces compute by ~60%.
+                    </div>
+                    <div class="arch-info-diagram">
+                        <div class="arch-flow">
+                            <div class="arch-node patch">Patches</div>
+                            <div class="arch-arrow">→</div>
+                            <div class="arch-node local">Local NN<span class="arch-tag frozen">FROZEN</span></div>
+                            <div class="arch-arrow">→</div>
+                            <div class="arch-node global">Global Aggregator<span class="arch-tag train">TRAINABLE</span>
+                            </div>
+                            <div class="arch-arrow">→</div>
+                            <div class="arch-node output">Policy + Value</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CNN panel for P2 -->
+                <div class="arch-info-panel hidden" id="arch-info-cnn-2">
+                    <div class="arch-info-header">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <rect x="2" y="3" width="20" height="14" rx="2" />
+                            <path d="M8 21h8M12 17v4" />
+                            <path d="M7 8h2v3H7zM11 8h2v3h-2zM15 8h2v3h-2z" />
+                        </svg>
+                        CNN Residual Architecture
+                    </div>
+                    <div class="arch-info-body">
+                        Uses <strong>2D convolutional residual blocks</strong> over a spatial dot-grid
+                        (<em>rows+1 × cols+1</em>) with <strong>11 input feature channels</strong> — edges,
+                        box ownership, edge-count one-hots, game progress and score difference.
+                        Separate policy and value heads deliver strong positional reasoning.
+                    </div>
+                    <div class="arch-info-diagram">
+                        <div class="arch-flow">
+                            <div class="arch-node patch" style="background:rgba(16,185,129,0.13);border-color:#10b981;">
+                                11-ch<br><small>Input</small>
+                            </div>
+                            <div class="arch-arrow">→</div>
+                            <div class="arch-node local" style="background:rgba(99,102,241,0.13);border-color:#6366f1;">
+                                Conv Tower<span class="arch-tag train" style="background:#6366f1;">ResBlocks</span>
+                            </div>
+                            <div class="arch-arrow">→</div>
+                            <div class="arch-node global"
+                                style="background:rgba(245,158,11,0.13);border-color:#f59e0b;flex-direction:column;gap:3px;">
+                                <span>Policy Head</span>
+                                <span style="font-size:0.68rem;opacity:0.7;">+ Value Head</span>
+                            </div>
+                            <div class="arch-arrow">→</div>
+                            <div class="arch-node output">Action</div>
+                        </div>
+                    </div>
+                    <div class="cnn-feature-pills">
+                        <div class="cnn-pill">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#10b981"
+                                stroke-width="2">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                            </svg>
+                            Spatial edge &amp; box encoding
+                        </div>
+                        <div class="cnn-pill">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6366f1"
+                                stroke-width="2">
+                                <rect x="3" y="3" width="7" height="7" />
+                                <rect x="14" y="3" width="7" height="7" />
+                                <rect x="3" y="14" width="7" height="7" />
+                                <rect x="14" y="14" width="7" height="7" />
+                            </svg>
+                            Pad-1 convolutions preserve board shape
+                        </div>
+                        <div class="cnn-pill">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#f59e0b"
+                                stroke-width="2">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                                <path d="M2 17l10 5 10-5M2 12l10 5 10-5" />
+                            </svg>
+                            BatchNorm + LayerNorm regularisation
+                        </div>
+                        <div class="cnn-pill">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#a78bfa"
+                                stroke-width="2">
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M12 8v4l3 3" />
+                            </svg>
+                            Fastest C++ inference
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -127,24 +395,6 @@
                             style="width: 100%; min-width: 20px; background: transparent; border: none; outline: none; color: var(--text-primary); text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 1rem;"
                             placeholder="C" min="2" max="15">
                     </div>
-                    <style>
-                        .no-spin::-webkit-inner-spin-button,
-                        .no-spin::-webkit-outer-spin-button {
-                            -webkit-appearance: none;
-                            appearance: none;
-                            margin: 0;
-                        }
-
-                        .no-spin {
-                            -moz-appearance: textfield;
-                            appearance: textfield;
-                        }
-
-                        .custom-size-box:focus-within {
-                            border-color: var(--accent);
-                            box-shadow: 0 0 16px rgba(99, 102, 241, 0.1);
-                        }
-                    </style>
                 </div>
             </div>
 
@@ -205,7 +455,7 @@
                     style="display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">
                     <input type="checkbox" id="ai-dag" checked
                         style="width: 16px; height: 16px; accent-color: var(--accent);">
-                    Use DAG transpositions (AlphaZero C++)
+                    Use DAG transpositions (AlphaZero C++ / CNN / PatchNet)
                 </label>
             </div>
 
@@ -332,11 +582,6 @@
 
     <!-- Status Toast -->
     <div class="status-toast" id="status-toast"></div>
-
-    <!-- ═══════════════ JAVASCRIPT ═══════════════ -->
-    <script>
-
-    </script>
 </body>
 
 </html>

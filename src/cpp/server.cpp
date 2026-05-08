@@ -281,7 +281,7 @@ int main(int argc, char* argv[]) {
     } else if (use_cnn_net) {
         azb::AlphaZeroCNNNet model(rows, cols, cnn_channels, blocks);
         try {
-            torch::load(model, model_path);
+            torch::load(model, model_path,torch::kCPU);
             model->to(device);
             model->eval();
             std::cerr << "[server] Loaded CNN model: " << model_path << std::endl;

@@ -137,6 +137,30 @@ static azb::TrainConfig make_5x5_cnn_kaggle_config() {
             /*temp_exploit*/      0.10f,
             /*capture_boost*/     0.0f
         },
+        {
+            /*name*/              "p3",
+            /*iterations*/        400,
+            /*mcts_sims*/         3200,
+            /*episodes_per_iter*/ 200,
+            /*epochs*/            4,
+            /*lr*/                0.0003f,
+            /*temp_threshold*/    12,
+            /*temp_explore*/      0.6f,
+            /*temp_exploit*/      0.10f,
+            /*capture_boost*/     0.0f
+        },
+        {
+            /*name*/              "p4",
+            /*iterations*/        400,
+            /*mcts_sims*/         3200,
+            /*episodes_per_iter*/ 200,
+            /*epochs*/            4,
+            /*lr*/                0.0003f,
+            /*temp_threshold*/    12,
+            /*temp_explore*/      0.6f,
+            /*temp_exploit*/      0.10f,
+            /*capture_boost*/     0.0f
+        }
     };
 
     return cfg;

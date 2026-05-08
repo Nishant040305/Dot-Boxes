@@ -45,12 +45,22 @@ class AlphaZeroCppAgent(Agent):
         if model_path is None:
             current_dir = os.path.dirname(os.path.abspath(__file__))
             root_dir = os.path.dirname(os.path.dirname(current_dir))
-            cpp_model_path = os.path.join(root_dir, 'src', 'cpp', 'models', f"_{self.rows}x{self.cols}", f"alphazero_{self.rows}x{self.cols}.pt")
-            if os.path.exists(cpp_model_path):
-                model_path = cpp_model_path
-            else:
-                models_dir = os.path.join(root_dir, 'models')
-                model_path = os.path.join(models_dir, f"alphazero_{self.rows}x{self.cols}.pt")
+            
+            # List of candidate paths to check
+            candidates = [
+                os.path.join(root_dir, 'src', 'cpp', 'models', f"_{self.rows}x{self.cols}_cnn", f"alphazero_{self.rows}x{self.cols}.pt"),
+                os.path.join(root_dir, 'src', 'cpp', 'models', f"_{self.rows}x{self.cols}", f"alphazero_{self.rows}x{self.cols}.pt"),
+                os.path.join(root_dir, 'models', f"alphazero_{self.rows}x{self.cols}.pt")
+            ]
+            
+            for cand in candidates:
+                if os.path.exists(cand):
+                    model_path = cand
+                    break
+                    
+            if model_path is None:
+                # Fallback to standard if none found, to let the error propagate later
+                model_path = candidates[1]
 
         if server_binary is None:
             server_binary = self._find_server_binary()
@@ -68,6 +78,8 @@ class AlphaZeroCppAgent(Agent):
         global_hidden = None
         global_blocks = None
         local_model_path = None
+        use_cnn_net = False
+        cnn_channels = None
 
         if os.path.exists(info_path):
             try:
@@ -85,6 +97,8 @@ class AlphaZeroCppAgent(Agent):
                 global_hidden = info.get('global_hidden_size')
                 global_blocks = info.get('global_num_res_blocks')
                 local_model_path = info.get('local_model_path')
+                use_cnn_net = info.get('use_cnn_net', False)
+                cnn_channels = info.get('cnn_channels')
                 print(f"[AlphaZeroCppAgent] Detected architecture: "
                       f"hidden={hidden_size}, blocks={num_res_blocks}, "
                       f"value_eval={value_eval}")
@@ -103,6 +117,8 @@ class AlphaZeroCppAgent(Agent):
             global_hidden=global_hidden,
             global_blocks=global_blocks,
             local_model_path=local_model_path,
+            use_cnn_net=use_cnn_net,
+            cnn_channels=cnn_channels,
         )
 
         # Register cleanup
@@ -131,7 +147,8 @@ class AlphaZeroCppAgent(Agent):
                       use_patch_net=False, patch_rows=None, patch_cols=None,
                       local_hidden=None, local_blocks=None,
                       global_hidden=None, global_blocks=None,
-                      local_model_path=None):
+                      local_model_path=None,
+                      use_cnn_net=False, cnn_channels=None):
         """Launch the C++ server process."""
         cmd = [
             binary,
@@ -179,6 +196,11 @@ class AlphaZeroCppAgent(Agent):
                 else:
                     print(f"[AlphaZeroCppAgent] WARNING: local_model_path not found: "
                           f"{local_model_path}. Continuing without it.")
+        elif use_cnn_net:
+            cmd.append('--cnn')
+            if cnn_channels is not None:
+                cmd.extend(['--cnn-channels', str(cnn_channels)])
+                
         if not use_dag:
             cmd.append('--no-dag')
 
